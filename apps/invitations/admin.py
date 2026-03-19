@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from apps.invitations.models import AccessPoint, Invitation, ValidationLog
+from apps.invitations.services import rotate_invitation_token
 
 
 @admin.register(AccessPoint)
@@ -33,6 +34,18 @@ class InvitationAdmin(admin.ModelAdmin):
     readonly_fields = ("public_id", "code")
     ordering = ("-created_at",)
     list_select_related = ("graduate", "graduate__ceremony", "used_by", "used_access_point")
+    actions = ("regenerate_selected_invitations",)
+
+    @admin.action(description="Regenerar token de las invitaciones seleccionadas")
+    def regenerate_selected_invitations(self, request, queryset):
+        regenerated = 0
+        for invitation in queryset:
+            rotate_invitation_token(invitation)
+            regenerated += 1
+        self.message_user(
+            request,
+            f"Se regeneraron {regenerated} invitaciones.",
+        )
 
 
 @admin.register(ValidationLog)

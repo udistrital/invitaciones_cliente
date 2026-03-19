@@ -21,6 +21,7 @@ class GraduateModelTest(TestCase):
             ceremony=self.ceremony,
             document_number="12345678",
             full_name="Laura Perez",
+            academic_program="Ingenieria de Sistemas",
             invitation_quota=2,
         )
 
@@ -30,6 +31,7 @@ class GraduateModelTest(TestCase):
                     ceremony=self.ceremony,
                     document_number="12345678",
                     full_name="Laura Perez Duplicada",
+                    academic_program="Ingenieria de Sistemas",
                     invitation_quota=1,
                 )
 
@@ -45,12 +47,14 @@ class GraduateModelTest(TestCase):
             ceremony=self.ceremony,
             document_number="12345678",
             full_name="Laura Perez",
+            academic_program="Ingenieria de Sistemas",
             invitation_quota=2,
         )
         graduate = Graduate.objects.create(
             ceremony=other_ceremony,
             document_number="12345678",
             full_name="Laura Perez Segunda Ceremonia",
+            academic_program="Ingenieria Industrial",
             invitation_quota=1,
         )
 
@@ -61,6 +65,7 @@ class GraduateModelTest(TestCase):
             ceremony=self.ceremony,
             document_number="99999999",
             full_name="Inválido",
+            academic_program="Programa de prueba",
             invitation_quota=-1,
         )
 

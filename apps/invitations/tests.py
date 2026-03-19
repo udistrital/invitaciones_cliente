@@ -1,11 +1,24 @@
+import io
+
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.ceremonies.models import Ceremony
 from apps.graduates.models import Graduate
 from apps.invitations.models import AccessPoint, Invitation, ValidationLog
+from apps.invitations.services import (
+    InvalidInvitationToken,
+    generate_invitation_pdf,
+    generate_invitation_token,
+    generate_qr_code_png,
+    get_invitation_from_token,
+    issue_invitations_for_graduate,
+    rotate_invitation_token,
+)
 
 
 class InvitationModelTest(TestCase):
@@ -20,6 +33,7 @@ class InvitationModelTest(TestCase):
             ceremony=self.ceremony,
             document_number="12345678",
             full_name="Laura Perez",
+            academic_program="Ingenieria de Sistemas",
             invitation_quota=2,
         )
         self.other_ceremony = Ceremony.objects.create(
@@ -153,3 +167,132 @@ class InvitationModelTest(TestCase):
                 access_point=self.other_access_point,
                 result=ValidationLog.Result.VALID,
             )
+
+    def test_issue_invitations_for_graduate_creates_up_to_quota(self):
+        invitations = issue_invitations_for_graduate(self.graduate)
+
+        self.assertEqual(len(invitations), 2)
+        self.assertEqual(
+            [invitation.sequence_number for invitation in invitations],
+            [1, 2],
+        )
+
+    def test_generate_invitation_token_is_stable_until_regeneration(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+
+        token_1 = generate_invitation_token(invitation)
+        token_2 = generate_invitation_token(invitation)
+
+        self.assertEqual(token_1, token_2)
+        self.assertEqual(get_invitation_from_token(token_1), invitation)
+
+    def test_rotate_invitation_token_invalidates_previous_token(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        old_token = generate_invitation_token(invitation)
+
+        rotate_invitation_token(invitation)
+
+        with self.assertRaises(InvalidInvitationToken):
+            get_invitation_from_token(old_token)
+
+    def test_generate_qr_code_png_returns_png_bytes(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+
+        png_bytes = generate_qr_code_png(invitation)
+
+        self.assertTrue(png_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_generate_invitation_pdf_returns_pdf_bytes(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+
+        pdf_bytes = generate_invitation_pdf(invitation)
+
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+        self.assertIn(invitation.code.encode("utf-8"), pdf_bytes)
+        self.assertIn(b"Laura Perez", pdf_bytes)
+
+    def test_validation_endpoint_accepts_signed_token(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+
+        response = self.client.get(
+            reverse("invitation-validate"),
+            {"token": token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["invitation_code"], invitation.code)
+
+    def test_pdf_download_endpoint_returns_pdf(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+
+        response = self.client.get(
+            reverse("invitation-download-pdf"),
+            {"token": token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_qr_preview_endpoint_returns_png(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+
+        response = self.client.get(
+            reverse("invitation-qr-image", kwargs={"public_id": invitation.public_id})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
+        self.assertTrue(response.content.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_issue_invitations_command_outputs_links(self):
+        output = io.StringIO()
+
+        call_command(
+            "issue_invitations",
+            graduate_id=self.graduate.pk,
+            stdout=output,
+        )
+
+        command_output = output.getvalue()
+        self.assertIn("invitaciones listas", command_output)
+        self.assertIn("http://127.0.0.1:8000/invitaciones/validar/", command_output)
+
+    def test_regenerate_invitation_command_increments_token_version(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        output = io.StringIO()
+
+        call_command(
+            "regenerate_invitation",
+            code=invitation.code,
+            stdout=output,
+        )
+
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.token_version, 2)

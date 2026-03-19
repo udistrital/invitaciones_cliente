@@ -96,3 +96,11 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+APP_BASE_URL = get_env("APP_BASE_URL", "http://127.0.0.1:8000")
+UNIVERSITY_NAME = "Universidad Distrital Francisco Jose de Caldas"
+ACADEMIC_OFFICE_NAME = "Secretaria Academica"
+INVITATION_VALIDATION_NOTE = (
+    "Presente esta invitacion en el ingreso. El codigo QR es unico y su validez "
+    "sera verificada al acceso."
+)

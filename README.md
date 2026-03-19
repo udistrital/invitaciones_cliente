@@ -96,6 +96,30 @@ docs/adr/             Decisiones arquitectónicas
 
 La estrategia del QR queda preparada para token firmado con `public_id + token_version`, sin almacenar el token en texto plano ni su hash persistente.
 
+## Emision de invitaciones
+
+La generacion de activos se hace bajo demanda:
+
+- el token se firma con `public_id + token_version`,
+- el QR se genera como PNG en memoria,
+- el PDF se genera en memoria con ReportLab,
+- no se almacenan archivos binarios en base de datos ni en disco,
+- si una invitacion debe regenerarse, se rota `token_version` y los activos se reconstruyen con el nuevo token.
+
+Rutas disponibles:
+
+- `GET /invitaciones/validar/?token=...`
+- `GET /invitaciones/descargar/?token=...`
+- `GET /invitaciones/qr/<public_id>/`
+
+Comandos disponibles:
+
+```bash
+uv run python manage.py issue_invitations --graduate-id 1
+uv run python manage.py issue_invitations --ceremony-code GRADOS-2026-01
+uv run python manage.py regenerate_invitation --code INV-XXXXXXXXXXXX
+```
+
 ## Alcance de esta fase
 
 Esta fase deja listo:
@@ -108,3 +132,30 @@ Esta fase deja listo:
 - pruebas smoke.
 
 Las fases siguientes cubrirán QR, PDF, importación masiva desde Excel y flujo de validación completo.
+
+## Probar la generacion localmente
+
+1. Crea una ceremonia y un graduando desde `/admin/`.
+2. Asegura que el graduando tenga `academic_program` y `invitation_quota` configurados.
+3. Genera las invitaciones:
+
+```bash
+set -a
+source .env
+set +a
+uv run python manage.py issue_invitations --graduate-id <ID_DEL_GRADUANDO>
+```
+
+4. El comando imprimira las URLs de validacion y descarga del PDF.
+5. Abre la URL `descargar` en el navegador para ver el PDF.
+6. Abre la URL `validar` para comprobar que el token firmado es verificable.
+7. Si necesitas invalidar el QR anterior y regenerar la invitacion:
+
+```bash
+set -a
+source .env
+set +a
+uv run python manage.py regenerate_invitation --code <CODIGO_INVITACION>
+```
+
+La nueva URL de validacion dejara de coincidir con el token anterior porque cambia `token_version`.

@@ -13,6 +13,7 @@ class Graduate(TimeStampedModel):
     student_code = models.CharField("código estudiantil", max_length=32, blank=True)
     document_number = models.CharField("documento", max_length=32)
     full_name = models.CharField("nombre completo", max_length=255)
+    academic_program = models.CharField("programa académico", max_length=255)
     email = models.EmailField("correo electrónico", blank=True)
     invitation_quota = models.PositiveSmallIntegerField(
         "cantidad de invitaciones", default=2
