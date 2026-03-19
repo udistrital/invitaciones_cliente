@@ -82,9 +82,19 @@ config/               Configuración Django
 apps/core/            Utilidades compartidas y health check
 apps/ceremonies/      Modelo de ceremonias
 apps/graduates/       Modelo de graduandos
-apps/invitations/     Invitaciones y registros de validación
+apps/invitations/     Invitaciones, puntos de acceso y registros de validación
 docs/adr/             Decisiones arquitectónicas
 ```
+
+## Modelo de dominio actual
+
+- Una `Ceremony` agrupa graduandos y puntos de acceso.
+- Un `Graduate` pertenece a una ceremonia y define su `invitation_quota`.
+- Una `Invitation` pertenece a un graduando, tiene `sequence_number`, `public_id`, `code`, `token_version` y estado.
+- Un `AccessPoint` representa una puerta, filtro o punto operativo de validación para una ceremonia.
+- Un `ValidationLog` registra cada intento de validación con resultado, usuario, punto de acceso, dispositivo, IP y agente de usuario.
+
+La estrategia del QR queda preparada para token firmado con `public_id + token_version`, sin almacenar el token en texto plano ni su hash persistente.
 
 ## Alcance de esta fase
 

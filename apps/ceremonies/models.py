@@ -26,6 +26,12 @@ class Ceremony(TimeStampedModel):
         ordering = ("scheduled_at", "name")
         verbose_name = "ceremonia"
         verbose_name_plural = "ceremonias"
+        indexes = [
+            models.Index(
+                fields=("status", "scheduled_at"),
+                name="ceremony_status_schedule_idx",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.code} - {self.name}"

@@ -23,10 +23,21 @@ class Graduate(TimeStampedModel):
         verbose_name = "graduando"
         verbose_name_plural = "graduandos"
         constraints = [
+            models.CheckConstraint(
+                check=models.Q(invitation_quota__gte=0),
+                name="graduate_invitation_quota_gte_0",
+            ),
             models.UniqueConstraint(
                 fields=("ceremony", "document_number"),
                 name="unique_graduate_document_per_ceremony",
-            )
+            ),
+        ]
+        indexes = [
+            models.Index(fields=("document_number",), name="graduate_document_idx"),
+            models.Index(
+                fields=("ceremony", "full_name"),
+                name="graduate_ceremony_name_idx",
+            ),
         ]
 
     def __str__(self) -> str:
