@@ -1,0 +1,64 @@
+{% extends "backoffice/base.html" %}
+
+{% block section_title %}Graduandos{% endblock %}
+{% block section_actions %}
+<a class="link-button button-primary compact" href="{% url 'backoffice:graduate-create' %}">Nuevo graduando</a>
+{% endblock %}
+
+{% block backoffice_content %}
+<section class="panel">
+    <form method="get" class="filters filters-wide">
+        <input type="text" name="q" placeholder="Buscar por nombre, documento o programa" value="{{ query }}">
+        <select name="ceremony">
+            <option value="">Todas las ceremonias</option>
+            {% for ceremony in ceremonies %}
+            <option value="{{ ceremony.pk }}" {% if selected_ceremony == ceremony.pk|stringformat:"s" %}selected{% endif %}>{{ ceremony.name }}</option>
+            {% endfor %}
+        </select>
+        <button class="button-secondary compact" type="submit">Filtrar</button>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>Graduando</th>
+                    <th>Programa</th>
+                    <th>Ceremonia</th>
+                    <th>Cupo</th>
+                    <th>Generadas</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for graduate in graduates %}
+                <tr>
+                    <td data-label="Graduando">{{ graduate.full_name }}<br><span class="subtle">{{ graduate.document_number }}</span></td>
+                    <td data-label="Programa">{{ graduate.academic_program }}</td>
+                    <td data-label="Ceremonia">{{ graduate.ceremony.name }}</td>
+                    <td data-label="Cupo">{{ graduate.invitation_quota }}</td>
+                    <td data-label="Generadas">{{ graduate.generated_invitations }}</td>
+                    <td data-label="Acciones">
+                        <div class="action-group">
+                            <a class="link-button button-secondary compact" href="{% url 'backoffice:graduate-update' graduate.pk %}">Editar</a>
+                            <a class="link-button button-secondary compact" href="{% url 'backoffice:invitation-list' %}?q={{ graduate.document_number }}">Ver invitaciones</a>
+                            <form method="post" action="{% url 'backoffice:graduate-issue-invitations' graduate.pk %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                <button class="button-primary compact" type="submit">Generar</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6">No hay graduandos registrados.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

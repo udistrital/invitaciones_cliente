@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'css/backoffice.css' %}">
+{% endblock %}
+
+{% block content %}
+<section class="shell shell-backoffice">
+    <header class="hero hero-backoffice">
+        <p class="eyebrow">Secretaria Academica</p>
+        <h1>{% block backoffice_title %}Gestion administrativa{% endblock %}</h1>
+        <p>{% block backoffice_intro %}Operacion diaria de ceremonias, graduandos e invitaciones.{% endblock %}</p>
+    </header>
+
+    <div class="backoffice-nav">
+        <a href="{% url 'backoffice:dashboard' %}" class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}">Resumen</a>
+        <a href="{% url 'backoffice:ceremony-list' %}" class="nav-link {% if 'ceremony' in request.resolver_match.url_name %}is-active{% endif %}">Ceremonias</a>
+        <a href="{% url 'backoffice:graduate-list' %}" class="nav-link {% if 'graduate' in request.resolver_match.url_name %}is-active{% endif %}">Graduandos</a>
+        <a href="{% url 'backoffice:invitation-list' %}" class="nav-link {% if 'invitation' in request.resolver_match.url_name %}is-active{% endif %}">Invitaciones</a>
+        <a href="{% url 'admin:index' %}" class="nav-link">Admin Django</a>
+    </div>
+
+    <div class="content">
+        {% if messages %}
+        <div class="message-stack">
+            {% for message in messages %}
+            <div class="flash flash-{{ message.tags|default:'info' }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="section-head">
+            <div>
+                <h2 class="section-title">{% block section_title %}{% endblock %}</h2>
+                {% if page_description %}
+                <p class="section-description">{{ page_description }}</p>
+                {% endif %}
+            </div>
+            <div class="section-actions">
+                {% block section_actions %}{% endblock %}
+            </div>
+        </div>
+
+        {% block backoffice_content %}{% endblock %}
+    </div>
+</section>
+{% endblock %}

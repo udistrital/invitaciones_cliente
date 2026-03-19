@@ -226,6 +226,13 @@ def issue_invitations_for_graduate(graduate: Graduate) -> List[Invitation]:
     return invitations
 
 
+def issue_invitations_for_ceremony(ceremony) -> int:
+    generated = 0
+    for graduate in ceremony.graduates.all().order_by("full_name"):
+        generated += len(issue_invitations_for_graduate(graduate))
+    return generated
+
+
 def rotate_invitation_token(invitation: Invitation) -> Invitation:
     if invitation.status == Invitation.Status.CANCELLED:
         raise ValidationError(
@@ -233,6 +240,21 @@ def rotate_invitation_token(invitation: Invitation) -> Invitation:
         )
 
     invitation.token_version += 1
+    invitation.save()
+    return invitation
+
+
+def cancel_invitation(invitation: Invitation) -> Invitation:
+    if invitation.status == Invitation.Status.USED:
+        raise ValidationError(
+            "No es posible anular una invitacion que ya fue utilizada."
+        )
+
+    if invitation.status == Invitation.Status.CANCELLED:
+        return invitation
+
+    invitation.status = Invitation.Status.CANCELLED
+    invitation.cancelled_at = timezone.now()
     invitation.save()
     return invitation
 

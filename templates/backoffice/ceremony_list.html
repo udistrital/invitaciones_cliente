@@ -1,0 +1,60 @@
+{% extends "backoffice/base.html" %}
+
+{% block section_title %}Ceremonias{% endblock %}
+{% block section_actions %}
+<a class="link-button button-primary compact" href="{% url 'backoffice:ceremony-create' %}">Nueva ceremonia</a>
+{% endblock %}
+
+{% block backoffice_content %}
+<section class="panel">
+    <form method="get" class="filters">
+        <input type="text" name="q" placeholder="Buscar por codigo, nombre o lugar" value="{{ query }}">
+        <button class="button-secondary compact" type="submit">Filtrar</button>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>Codigo</th>
+                    <th>Nombre</th>
+                    <th>Fecha</th>
+                    <th>Estado</th>
+                    <th>Graduandos</th>
+                    <th>Invitaciones</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ceremony in ceremonies %}
+                <tr>
+                    <td data-label="Codigo">{{ ceremony.code }}</td>
+                    <td data-label="Nombre">{{ ceremony.name }}</td>
+                    <td data-label="Fecha">{{ ceremony.scheduled_at|date:"d/m/Y h:i A" }}</td>
+                    <td data-label="Estado">{{ ceremony.get_status_display }}</td>
+                    <td data-label="Graduandos">{{ ceremony.graduates_total }}</td>
+                    <td data-label="Invitaciones">{{ ceremony.invitations_total }}</td>
+                    <td data-label="Acciones">
+                        <div class="action-group">
+                            <a class="link-button button-secondary compact" href="{% url 'backoffice:ceremony-update' ceremony.pk %}">Editar</a>
+                            <a class="link-button button-secondary compact" href="{% url 'backoffice:graduate-list' %}?ceremony={{ ceremony.pk }}">Graduandos</a>
+                            <form method="post" action="{% url 'backoffice:ceremony-issue-invitations' ceremony.pk %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                <button class="button-primary compact" type="submit">Generar invitaciones</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="7">No hay ceremonias registradas.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

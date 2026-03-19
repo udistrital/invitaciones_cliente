@@ -207,3 +207,35 @@ En `/admin/` revisa:
 
 - `Invitaciones`: estado `Usada`, fecha y usuario de validacion.
 - `Registros de validacion`: resultado, IP, user agent, punto de acceso y si la accion marco la invitacion como usada.
+
+## Interfaz administrativa para Secretaria Academica
+
+Ademas del admin tecnico de Django, el proyecto incluye un backoffice minimo en:
+
+- `GET /gestion/`
+
+Funciones disponibles:
+
+- crear y editar ceremonias,
+- registrar y editar graduandos,
+- definir el numero de invitaciones por graduando,
+- generar invitaciones por graduando o por ceremonia,
+- listar invitaciones generadas,
+- consultar estado de validacion,
+- descargar el PDF de una invitacion,
+- anular invitaciones no usadas.
+
+### Uso basico
+
+1. Inicia sesion con un usuario `is_staff`.
+2. Abre `/gestion/`.
+3. Crea la ceremonia en `Ceremonias`.
+4. Registra graduandos en `Graduandos`.
+5. Usa `Generar` para emitir invitaciones.
+6. Consulta y administra el resultado en `Invitaciones`.
+
+### Notas operativas
+
+- La anulacion de invitaciones bloquea su uso posterior.
+- No se permite anular una invitacion que ya fue utilizada.
+- El backoffice reutiliza la autenticacion de Django y mantiene el codigo simple; no reemplaza el admin tecnico, lo complementa.

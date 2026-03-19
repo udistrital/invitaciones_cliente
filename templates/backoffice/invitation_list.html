@@ -1,0 +1,76 @@
+{% extends "backoffice/base.html" %}
+
+{% block section_title %}Invitaciones{% endblock %}
+
+{% block backoffice_content %}
+<section class="panel">
+    <form method="get" class="filters filters-wide">
+        <input type="text" name="q" placeholder="Buscar por codigo, nombre o documento" value="{{ query }}">
+        <select name="ceremony">
+            <option value="">Todas las ceremonias</option>
+            {% for ceremony in ceremonies %}
+            <option value="{{ ceremony.pk }}" {% if selected_ceremony == ceremony.pk|stringformat:"s" %}selected{% endif %}>{{ ceremony.name }}</option>
+            {% endfor %}
+        </select>
+        <select name="status">
+            <option value="">Todos los estados</option>
+            {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button class="button-secondary compact" type="submit">Filtrar</button>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>Codigo</th>
+                    <th>Graduando</th>
+                    <th>Ceremonia</th>
+                    <th>Estado</th>
+                    <th>Uso</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for invitation in invitations %}
+                <tr>
+                    <td data-label="Codigo">{{ invitation.code }}</td>
+                    <td data-label="Graduando">{{ invitation.graduate.full_name }}</td>
+                    <td data-label="Ceremonia">{{ invitation.graduate.ceremony.name }}</td>
+                    <td data-label="Estado">{{ invitation.get_status_display }}</td>
+                    <td data-label="Uso">
+                        {% if invitation.used_at %}
+                            {{ invitation.used_at|date:"d/m/Y h:i A" }}
+                        {% else %}
+                            Sin uso
+                        {% endif %}
+                    </td>
+                    <td data-label="Acciones">
+                        <div class="action-group">
+                            <a class="link-button button-secondary compact" href="{% url 'backoffice:invitation-detail' invitation.pk %}">Detalle</a>
+                            <a class="link-button button-secondary compact" href="{{ invitation.validation_url }}" target="_blank" rel="noopener">Consultar</a>
+                            <a class="link-button button-secondary compact" href="{{ invitation.download_url }}" target="_blank" rel="noopener">PDF</a>
+                            {% if invitation.status != 'cancelled' and invitation.status != 'used' %}
+                            <form method="post" action="{% url 'backoffice:invitation-cancel' invitation.pk %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                <button class="button-danger compact" type="submit">Anular</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6">No hay invitaciones generadas.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

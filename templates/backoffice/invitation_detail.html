@@ -1,0 +1,79 @@
+{% extends "backoffice/base.html" %}
+
+{% block section_title %}Detalle de invitacion{% endblock %}
+{% block section_actions %}
+<a class="link-button button-secondary compact" href="{% url 'backoffice:invitation-list' %}">Volver al listado</a>
+{% endblock %}
+
+{% block backoffice_content %}
+<div class="split-grid">
+    <section class="panel">
+        <h3>Datos principales</h3>
+        <div class="detail-grid">
+            <article class="detail-card">
+                <span class="detail-label">Codigo</span>
+                <strong>{{ invitation.code }}</strong>
+            </article>
+            <article class="detail-card">
+                <span class="detail-label">Graduando</span>
+                <strong>{{ invitation.graduate.full_name }}</strong>
+            </article>
+            <article class="detail-card">
+                <span class="detail-label">Programa</span>
+                <strong>{{ invitation.graduate.academic_program }}</strong>
+            </article>
+            <article class="detail-card">
+                <span class="detail-label">Estado</span>
+                <strong>{{ invitation.get_status_display }}</strong>
+            </article>
+            <article class="detail-card">
+                <span class="detail-label">Creada</span>
+                <strong>{{ invitation.created_at|date:"d/m/Y h:i A" }}</strong>
+            </article>
+            <article class="detail-card">
+                <span class="detail-label">Usada</span>
+                <strong>{% if invitation.used_at %}{{ invitation.used_at|date:"d/m/Y h:i A" }}{% else %}No{% endif %}</strong>
+            </article>
+        </div>
+
+        <div class="action-group action-group-block">
+            <a class="link-button button-secondary" href="{{ validation_url }}" target="_blank" rel="noopener">Consultar estado</a>
+            <a class="link-button button-secondary" href="{{ download_url }}" target="_blank" rel="noopener">Descargar PDF</a>
+            {% if invitation.status != 'cancelled' and invitation.status != 'used' %}
+            <form method="post" action="{% url 'backoffice:invitation-cancel' invitation.pk %}">
+                {% csrf_token %}
+                <button class="button-danger" type="submit">Anular invitacion</button>
+            </form>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="panel">
+        <h3>Estado de validacion</h3>
+        {% if invitation.used_by %}
+        <p>Validada por: {{ invitation.used_by.get_username }}</p>
+        {% endif %}
+        {% if invitation.used_access_point %}
+        <p>Punto de acceso: {{ invitation.used_access_point.name }}</p>
+        {% endif %}
+        {% if invitation.used_from_ip %}
+        <p>IP registrada: {{ invitation.used_from_ip }}</p>
+        {% endif %}
+
+        <h3 style="margin-top: 22px;">Historial de validacion</h3>
+        <div class="log-list">
+            {% for log in validation_logs %}
+            <article class="log-item">
+                <strong>{{ log.get_result_display }}</strong>
+                <span>{{ log.validated_at|date:"d/m/Y h:i A" }}</span>
+                {% if log.validator %}<span>Usuario: {{ log.validator.get_username }}</span>{% endif %}
+                {% if log.access_point %}<span>Punto: {{ log.access_point.name }}</span>{% endif %}
+                {% if log.source_ip %}<span>IP: {{ log.source_ip }}</span>{% endif %}
+            </article>
+            {% empty %}
+            <p>No hay registros de validacion para esta invitacion.</p>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}

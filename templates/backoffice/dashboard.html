@@ -1,0 +1,45 @@
+{% extends "backoffice/base.html" %}
+
+{% block backoffice_title %}Panel operativo{% endblock %}
+{% block section_title %}Resumen general{% endblock %}
+
+{% block backoffice_content %}
+<div class="stats-grid">
+    {% for label, value in metrics %}
+    <article class="stat-card">
+        <span class="stat-label">{{ label }}</span>
+        <strong class="stat-value">{{ value }}</strong>
+    </article>
+    {% endfor %}
+</div>
+
+<div class="split-grid">
+    <section class="panel">
+        <h3>Ultimas ceremonias</h3>
+        <div class="simple-list">
+            {% for ceremony in recent_ceremonies %}
+            <article class="simple-item">
+                <strong>{{ ceremony.name }}</strong>
+                <span>{{ ceremony.code }} · {{ ceremony.scheduled_at|date:"d/m/Y h:i A" }}</span>
+            </article>
+            {% empty %}
+            <p>No hay ceremonias registradas.</p>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="panel">
+        <h3>Ultimas invitaciones</h3>
+        <div class="simple-list">
+            {% for invitation in recent_invitations %}
+            <article class="simple-item">
+                <strong>{{ invitation.code }}</strong>
+                <span>{{ invitation.graduate.full_name }} · {{ invitation.get_status_display }}</span>
+            </article>
+            {% empty %}
+            <p>No hay invitaciones generadas.</p>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}
