@@ -1,13 +1,14 @@
 import hashlib
 import io
+from dataclasses import dataclass
 from urllib.parse import urlencode
-from typing import List
+from typing import List, Optional
 
 import qrcode
 from django.conf import settings
 from django.core import signing
 from django.core.exceptions import ValidationError
-from django.http import Http404
+from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 from reportlab.lib.pagesizes import A4
@@ -15,14 +16,26 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from apps.graduates.models import Graduate
-from apps.invitations.models import Invitation
+from apps.invitations.models import AccessPoint, Invitation, ValidationLog
 
 
 INVITATION_TOKEN_SALT = "apps.invitations.token"
 
 
 class InvalidInvitationToken(Exception):
-    pass
+    def __init__(self, message: str, result: str = ValidationLog.Result.INVALID_TOKEN):
+        super().__init__(message)
+        self.result = result
+
+
+@dataclass
+class ValidationOutcome:
+    state: str
+    message: str
+    invitation: Optional[Invitation]
+    log_result: str
+    token_fingerprint: str
+    marked_as_used: bool = False
 
 
 def generate_invitation_token(invitation: Invitation) -> str:
@@ -35,16 +48,28 @@ def generate_invitation_token(invitation: Invitation) -> str:
 
 
 def get_token_fingerprint(token: str) -> str:
+    if not token:
+        return ""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()[:16].upper()
 
 
-def get_invitation_from_token(token: str) -> Invitation:
+def decode_invitation_token(token: str) -> dict:
     signer = signing.Signer(salt=INVITATION_TOKEN_SALT)
 
+    if not token:
+        raise InvalidInvitationToken(
+            "No se recibio un token de invitacion.",
+            result=ValidationLog.Result.NOT_FOUND,
+        )
+
     try:
-        payload = signer.unsign_object(token)
+        return signer.unsign_object(token)
     except signing.BadSignature as exc:
         raise InvalidInvitationToken("La firma del token no es válida.") from exc
+
+
+def get_invitation_from_token(token: str) -> Invitation:
+    payload = decode_invitation_token(token)
 
     public_id = payload.get("invitation")
     token_version = payload.get("version")
@@ -58,19 +83,15 @@ def get_invitation_from_token(token: str) -> Invitation:
             "graduate__ceremony",
         ).get(public_id=public_id)
     except Invitation.DoesNotExist as exc:
-        raise InvalidInvitationToken("La invitación no existe.") from exc
+        raise InvalidInvitationToken(
+            "La invitacion no existe.",
+            result=ValidationLog.Result.NOT_FOUND,
+        ) from exc
 
     if invitation.token_version != token_version:
         raise InvalidInvitationToken("El token de la invitación fue reemplazado.")
 
     return invitation
-
-
-def get_invitation_from_token_or_404(token: str) -> Invitation:
-    try:
-        return get_invitation_from_token(token)
-    except InvalidInvitationToken as exc:
-        raise Http404(str(exc)) from exc
 
 
 def build_absolute_url(path: str, request=None) -> str:
@@ -214,3 +235,241 @@ def rotate_invitation_token(invitation: Invitation) -> Invitation:
     invitation.token_version += 1
     invitation.save()
     return invitation
+
+
+def get_client_ip(request) -> str:
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
+
+
+def get_device_label(request) -> str:
+    return request.headers.get("X-Device-Label", "")[:100]
+
+
+def get_validator_user(request):
+    user = getattr(request, "user", None)
+    if user and user.is_authenticated:
+        return user
+    return None
+
+
+def get_invitation_state(invitation: Invitation) -> str:
+    if invitation.status == Invitation.Status.USED:
+        return ValidationLog.Result.USED
+    if invitation.status == Invitation.Status.CANCELLED:
+        return ValidationLog.Result.CANCELLED
+    return ValidationLog.Result.VALID
+
+
+def build_validation_message(state: str, invitation: Optional[Invitation] = None) -> str:
+    if state == ValidationLog.Result.VALID:
+        return "Invitacion valida para ingreso."
+    if state == ValidationLog.Result.USED:
+        used_at = invitation.used_at if invitation else None
+        if used_at:
+            used_at_text = timezone.localtime(used_at).strftime("%d/%m/%Y %I:%M %p")
+            return f"Esta invitacion ya fue utilizada el {used_at_text}."
+        return "Esta invitacion ya fue utilizada."
+    if state == ValidationLog.Result.CANCELLED:
+        return "Esta invitacion se encuentra anulada."
+    return "La invitacion es inexistente o el QR ya no es valido."
+
+
+def get_display_state(state: str) -> str:
+    if state == ValidationLog.Result.VALID:
+        return "valid"
+    if state == ValidationLog.Result.USED:
+        return "used"
+    if state == ValidationLog.Result.CANCELLED:
+        return "cancelled"
+    return "not_found"
+
+
+def resolve_access_point(request, ceremony=None, *, allow_session=True):
+    access_point_id = request.POST.get("access_point") or request.GET.get("access_point")
+
+    if not access_point_id and allow_session:
+        access_point_id = request.session.get("validation_access_point_id")
+
+    if not access_point_id or ceremony is None:
+        return None
+
+    try:
+        access_point = ceremony.access_points.get(pk=access_point_id, is_active=True)
+    except (AccessPoint.DoesNotExist, ValueError, TypeError):
+        return None
+
+    return access_point
+
+
+def persist_validation_context(request, access_point: Optional[AccessPoint]) -> None:
+    if access_point is not None:
+        request.session["validation_access_point_id"] = access_point.pk
+
+
+def log_validation_attempt(
+    *,
+    token: str,
+    request,
+    result: str,
+    invitation: Optional[Invitation] = None,
+    marked_as_used: bool = False,
+    access_point: Optional[AccessPoint] = None,
+) -> ValidationLog:
+    return ValidationLog.objects.create(
+        invitation=invitation,
+        token_fingerprint=get_token_fingerprint(token),
+        validator=get_validator_user(request),
+        access_point=access_point,
+        device_label=get_device_label(request),
+        result=result,
+        marked_as_used=marked_as_used,
+        source_ip=get_client_ip(request) or None,
+        user_agent=request.META.get("HTTP_USER_AGENT", ""),
+    )
+
+
+def inspect_invitation_token(token: str, request) -> ValidationOutcome:
+    try:
+        invitation = get_invitation_from_token(token)
+        access_point = resolve_access_point(request, invitation.graduate.ceremony)
+        result = get_invitation_state(invitation)
+        log_validation_attempt(
+            token=token,
+            request=request,
+            result=result,
+            invitation=invitation,
+            access_point=access_point,
+        )
+        return ValidationOutcome(
+            state=get_display_state(result),
+            message=build_validation_message(result, invitation),
+            invitation=invitation,
+            log_result=result,
+            token_fingerprint=get_token_fingerprint(token),
+        )
+    except InvalidInvitationToken as exc:
+        log_validation_attempt(
+            token=token,
+            request=request,
+            result=exc.result,
+        )
+        return ValidationOutcome(
+            state="not_found",
+            message=build_validation_message(exc.result),
+            invitation=None,
+            log_result=exc.result,
+            token_fingerprint=get_token_fingerprint(token),
+        )
+
+
+def consume_invitation(token: str, request, access_point: Optional[AccessPoint] = None) -> ValidationOutcome:
+    try:
+        payload = decode_invitation_token(token)
+    except InvalidInvitationToken as exc:
+        log_validation_attempt(
+            token=token,
+            request=request,
+            result=exc.result,
+        )
+        return ValidationOutcome(
+            state="not_found",
+            message=build_validation_message(exc.result),
+            invitation=None,
+            log_result=exc.result,
+            token_fingerprint=get_token_fingerprint(token),
+        )
+
+    public_id = payload.get("invitation")
+    token_version = payload.get("version")
+
+    try:
+        with transaction.atomic():
+            invitation = (
+                Invitation.objects.select_for_update()
+                .select_related("graduate", "graduate__ceremony")
+                .get(public_id=public_id)
+            )
+
+            if invitation.token_version != token_version:
+                raise InvalidInvitationToken(
+                    "El token de la invitacion fue reemplazado."
+                )
+
+            if access_point is None:
+                access_point = resolve_access_point(
+                    request,
+                    invitation.graduate.ceremony,
+                    allow_session=True,
+                )
+
+            state_result = get_invitation_state(invitation)
+
+            if state_result == ValidationLog.Result.VALID:
+                invitation.status = Invitation.Status.USED
+                invitation.used_at = timezone.now()
+                invitation.used_by = get_validator_user(request)
+                invitation.used_access_point = access_point
+                invitation.used_device_label = get_device_label(request)
+                invitation.used_from_ip = get_client_ip(request) or None
+                invitation.save()
+                persist_validation_context(request, access_point)
+                log_validation_attempt(
+                    token=token,
+                    request=request,
+                    result=ValidationLog.Result.VALID,
+                    invitation=invitation,
+                    marked_as_used=True,
+                    access_point=access_point,
+                )
+                return ValidationOutcome(
+                    state="used",
+                    message="Invitacion marcada como usada correctamente.",
+                    invitation=invitation,
+                    log_result=ValidationLog.Result.VALID,
+                    token_fingerprint=get_token_fingerprint(token),
+                    marked_as_used=True,
+                )
+
+            log_validation_attempt(
+                token=token,
+                request=request,
+                result=state_result,
+                invitation=invitation,
+                access_point=access_point,
+            )
+            return ValidationOutcome(
+                state=get_display_state(state_result),
+                message=build_validation_message(state_result, invitation),
+                invitation=invitation,
+                log_result=state_result,
+                token_fingerprint=get_token_fingerprint(token),
+            )
+    except Invitation.DoesNotExist:
+        log_validation_attempt(
+            token=token,
+            request=request,
+            result=ValidationLog.Result.NOT_FOUND,
+        )
+        return ValidationOutcome(
+            state="not_found",
+            message=build_validation_message(ValidationLog.Result.NOT_FOUND),
+            invitation=None,
+            log_result=ValidationLog.Result.NOT_FOUND,
+            token_fingerprint=get_token_fingerprint(token),
+        )
+    except InvalidInvitationToken as exc:
+        log_validation_attempt(
+            token=token,
+            request=request,
+            result=exc.result,
+        )
+        return ValidationOutcome(
+            state="not_found",
+            message=build_validation_message(exc.result),
+            invitation=None,
+            log_result=exc.result,
+            token_fingerprint=get_token_fingerprint(token),
+        )

@@ -55,6 +55,7 @@ class InvitationModelTest(TestCase):
         self.user = get_user_model().objects.create_user(
             username="validator1",
             password="secret123",
+            is_staff=True,
         )
 
     def test_invitation_generates_public_id_code_and_default_token_version(self):
@@ -232,11 +233,62 @@ class InvitationModelTest(TestCase):
 
         response = self.client.get(
             reverse("invitation-validate"),
-            {"token": token},
+            {"token": token, "format": "json"},
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["invitation_code"], invitation.code)
+        self.assertEqual(response.json()["invitation"]["code"], invitation.code)
+
+    def test_validation_page_renders_valid_state_for_mobile_flow(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+
+        response = self.client.get(reverse("invitation-validate"), {"token": token})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Invitacion valida")
+        self.assertContains(response, invitation.code)
+
+    def test_validation_page_renders_used_state(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.USED,
+            used_at=timezone.now(),
+            used_by=self.user,
+        )
+        token = generate_invitation_token(invitation)
+
+        response = self.client.get(reverse("invitation-validate"), {"token": token})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Invitacion ya utilizada")
+
+    def test_validation_page_renders_cancelled_state(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.CANCELLED,
+            cancelled_at=timezone.now(),
+        )
+        token = generate_invitation_token(invitation)
+
+        response = self.client.get(reverse("invitation-validate"), {"token": token})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Invitacion anulada")
+
+    def test_validation_page_renders_not_found_state_for_invalid_token(self):
+        response = self.client.get(
+            reverse("invitation-validate"),
+            {"token": "token-invalido"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Invitacion inexistente")
 
     def test_pdf_download_endpoint_returns_pdf(self):
         invitation = Invitation.objects.create(
@@ -267,6 +319,91 @@ class InvitationModelTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/png")
         self.assertTrue(response.content.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_validation_get_creates_trace_log(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+
+        response = self.client.get(reverse("invitation-validate"), {"token": token})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ValidationLog.objects.count(), 1)
+        log = ValidationLog.objects.get()
+        self.assertEqual(log.result, ValidationLog.Result.VALID)
+        self.assertFalse(log.marked_as_used)
+
+    def test_mark_used_endpoint_consumes_valid_invitation_once(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("invitation-mark-used"),
+            {
+                "token": token,
+                "access_point": self.access_point.pk,
+            },
+        )
+
+        invitation.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(invitation.status, Invitation.Status.USED)
+        self.assertIsNotNone(invitation.used_at)
+        self.assertEqual(invitation.used_by, self.user)
+        self.assertEqual(invitation.used_access_point, self.access_point)
+        self.assertContains(response, "marcada como usada")
+
+        log = ValidationLog.objects.latest("validated_at")
+        self.assertTrue(log.marked_as_used)
+        self.assertEqual(log.access_point, self.access_point)
+        self.assertEqual(log.validator, self.user)
+
+    def test_mark_used_endpoint_prevents_double_use(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.USED,
+            used_at=timezone.now(),
+            used_by=self.user,
+        )
+        token = generate_invitation_token(invitation)
+        initial_used_at = invitation.used_at
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("invitation-mark-used"),
+            {"token": token},
+        )
+
+        invitation.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(invitation.used_at, initial_used_at)
+        self.assertContains(response, "ya fue utilizada")
+
+        log = ValidationLog.objects.latest("validated_at")
+        self.assertFalse(log.marked_as_used)
+        self.assertEqual(log.result, ValidationLog.Result.USED)
+
+    def test_mark_used_endpoint_requires_staff_session(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+
+        response = self.client.post(
+            reverse("invitation-mark-used"),
+            {"token": token},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("admin:login"), response["Location"])
 
     def test_issue_invitations_command_outputs_links(self):
         output = io.StringIO()

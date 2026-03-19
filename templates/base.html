@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Sistema de Invitaciones{% endblock %}</title>
+    <style>
+        :root {
+            --bg: #f7f1e8;
+            --surface: rgba(255, 255, 255, 0.92);
+            --ink: #1f2933;
+            --muted: #5d6a74;
+            --line: #d7d3ca;
+            --success: #1f7a5c;
+            --success-soft: #dff4ea;
+            --warning: #9a6700;
+            --warning-soft: #fff1d6;
+            --danger: #b42318;
+            --danger-soft: #fee4e2;
+            --neutral: #475467;
+            --neutral-soft: #eaecf0;
+            --accent: #004e64;
+            --shadow: 0 18px 50px rgba(30, 41, 59, 0.12);
+            --radius: 24px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top left, #f3d9b1 0, transparent 28%),
+                radial-gradient(circle at top right, #c8e6e2 0, transparent 24%),
+                linear-gradient(180deg, #fbf7f0 0%, #f1ece3 100%);
+            min-height: 100vh;
+        }
+
+        .page {
+            width: min(100%, 760px);
+            margin: 0 auto;
+            padding: 24px 16px 40px;
+        }
+
+        .shell {
+            background: var(--surface);
+            border: 1px solid rgba(215, 211, 202, 0.9);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .hero {
+            padding: 24px 24px 12px;
+            background: linear-gradient(135deg, rgba(0, 78, 100, 0.96), rgba(17, 94, 89, 0.88));
+            color: #fff8ef;
+        }
+
+        .eyebrow {
+            margin: 0 0 8px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-size: 0.76rem;
+            opacity: 0.82;
+        }
+
+        .hero h1 {
+            margin: 0;
+            font-size: clamp(1.7rem, 5vw, 2.4rem);
+            line-height: 1.05;
+        }
+
+        .hero p {
+            margin: 12px 0 0;
+            max-width: 42rem;
+            color: rgba(255, 248, 239, 0.88);
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            margin-bottom: 14px;
+        }
+
+        .tone-success {
+            color: var(--success);
+            background: var(--success-soft);
+        }
+
+        .tone-warning {
+            color: var(--warning);
+            background: var(--warning-soft);
+        }
+
+        .tone-danger {
+            color: var(--danger);
+            background: var(--danger-soft);
+        }
+
+        .tone-neutral {
+            color: var(--neutral);
+            background: var(--neutral-soft);
+        }
+
+        .headline {
+            margin: 0 0 10px;
+            font-size: clamp(1.4rem, 4vw, 1.9rem);
+        }
+
+        .message {
+            margin: 0 0 20px;
+            color: var(--muted);
+            font-size: 1rem;
+            line-height: 1.45;
+        }
+
+        .grid {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            margin-bottom: 18px;
+        }
+
+        .detail {
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.8);
+        }
+
+        .detail-label {
+            display: block;
+            color: var(--muted);
+            font-size: 0.82rem;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .detail-value {
+            font-size: 1rem;
+            font-weight: 700;
+            word-break: break-word;
+        }
+
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            padding: 16px;
+            background: rgba(252, 251, 247, 0.88);
+        }
+
+        .panel h2 {
+            margin: 0 0 12px;
+            font-size: 1.05rem;
+        }
+
+        .panel p {
+            margin: 0 0 12px;
+            color: var(--muted);
+        }
+
+        form {
+            display: grid;
+            gap: 12px;
+        }
+
+        label {
+            display: block;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        select,
+        input[type="text"],
+        button,
+        .link-button {
+            width: 100%;
+            border-radius: 14px;
+            font: inherit;
+        }
+
+        select,
+        input[type="text"] {
+            border: 1px solid var(--line);
+            padding: 12px 14px;
+            background: white;
+        }
+
+        button,
+        .link-button {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            border: none;
+            padding: 14px 16px;
+            text-decoration: none;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .button-primary {
+            background: linear-gradient(135deg, #116466, #0f766e);
+            color: white;
+        }
+
+        .button-secondary {
+            background: #eff3f6;
+            color: var(--ink);
+            border: 1px solid var(--line);
+        }
+
+        .actions {
+            display: grid;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .meta {
+            margin-top: 16px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .help {
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px dashed var(--line);
+            color: var(--muted);
+            font-size: 0.95rem;
+            line-height: 1.45;
+        }
+
+        .errorlist {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            color: var(--danger);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 540px) {
+            .page {
+                padding: 12px 10px 28px;
+            }
+
+            .hero,
+            .content {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <main class="page">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

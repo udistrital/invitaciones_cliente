@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Validacion de invitacion{% endblock %}
+
+{% block content %}
+<section class="shell">
+    <header class="hero">
+        <p class="eyebrow">Control de acceso</p>
+        <h1>Validacion de invitaciones</h1>
+        <p>Consulta rapida para personal logistico y validacion de ingreso desde celular.</p>
+    </header>
+
+    <div class="content">
+        <span class="badge tone-{{ status_tone }}">{{ status_badge }}</span>
+        <h2 class="headline">{{ status_headline }}</h2>
+        <p class="message">{{ outcome.message }}</p>
+
+        {% if invitation %}
+        <div class="grid">
+            <article class="detail">
+                <span class="detail-label">Graduando</span>
+                <span class="detail-value">{{ invitation.graduate.full_name }}</span>
+            </article>
+            <article class="detail">
+                <span class="detail-label">Programa</span>
+                <span class="detail-value">{{ invitation.graduate.academic_program }}</span>
+            </article>
+            <article class="detail">
+                <span class="detail-label">Ceremonia</span>
+                <span class="detail-value">{{ invitation.graduate.ceremony.name }}</span>
+            </article>
+            <article class="detail">
+                <span class="detail-label">Codigo</span>
+                <span class="detail-value">{{ invitation.code }}</span>
+            </article>
+            <article class="detail">
+                <span class="detail-label">Lugar</span>
+                <span class="detail-value">{{ invitation.graduate.ceremony.venue }}</span>
+            </article>
+            <article class="detail">
+                <span class="detail-label">Estado actual</span>
+                <span class="detail-value">{{ invitation.get_status_display }}</span>
+            </article>
+        </div>
+        {% endif %}
+
+        {% if invitation and invitation.used_at %}
+        <div class="panel" style="margin-bottom: 18px;">
+            <h2>Ultimo uso registrado</h2>
+            <p>Fecha y hora: {{ invitation.used_at|date:"d/m/Y h:i A" }}</p>
+            {% if invitation.used_by %}
+            <p>Validado por: {{ invitation.used_by.get_username }}</p>
+            {% endif %}
+            {% if invitation.used_access_point %}
+            <p>Punto de acceso: {{ invitation.used_access_point.name }}</p>
+            {% endif %}
+            {% if invitation.used_from_ip %}
+            <p>IP: {{ invitation.used_from_ip }}</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="panel">
+            <h2>Accion de ingreso</h2>
+            {% if can_mark_used %}
+            <p>Confirma el ingreso para marcar la invitacion como usada y evitar reutilizacion accidental.</p>
+            <form method="post" action="{% url 'invitation-mark-used' %}">
+                {% csrf_token %}
+                {{ form.token }}
+                {% if form.access_point.field.queryset %}
+                <div>
+                    <label for="{{ form.access_point.id_for_label }}">{{ form.access_point.label }}</label>
+                    {{ form.access_point }}
+                    {{ form.access_point.errors }}
+                </div>
+                {% endif %}
+                <div class="actions">
+                    <button class="button-primary" type="submit">Marcar como usada</button>
+                    {% if download_url %}
+                    <a class="link-button button-secondary" href="{{ download_url }}" target="_blank" rel="noopener">Ver PDF</a>
+                    {% endif %}
+                </div>
+            </form>
+            {% elif invitation and not request.user.is_authenticated %}
+            <p>Para registrar el uso debes iniciar sesion con una cuenta de personal logistico.</p>
+            <div class="actions">
+                <a class="link-button button-primary" href="{{ login_url }}">Iniciar sesion</a>
+                {% if download_url %}
+                <a class="link-button button-secondary" href="{{ download_url }}" target="_blank" rel="noopener">Ver PDF</a>
+                {% endif %}
+            </div>
+            {% elif invitation and request.user.is_authenticated and not request.user.is_staff %}
+            <p>La cuenta actual no tiene permisos para marcar ingreso.</p>
+            {% elif invitation %}
+            <p>No hay accion disponible para este estado.</p>
+            {% else %}
+            <p>No es posible operar esta invitacion porque el QR no corresponde a un registro valido.</p>
+            {% endif %}
+        </div>
+
+        <p class="meta">Trazabilidad registrada: fecha, hora, IP, agente del navegador y usuario autenticado si existe.</p>
+        <div class="help">
+            Si esta pantalla muestra "ya utilizada" o "anulada", no permitas un nuevo ingreso sin validacion manual.
+        </div>
+    </div>
+</section>
+{% endblock %}

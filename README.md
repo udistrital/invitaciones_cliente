@@ -109,6 +109,7 @@ La generacion de activos se hace bajo demanda:
 Rutas disponibles:
 
 - `GET /invitaciones/validar/?token=...`
+- `POST /invitaciones/usar/`
 - `GET /invitaciones/descargar/?token=...`
 - `GET /invitaciones/qr/<public_id>/`
 
@@ -159,3 +160,50 @@ uv run python manage.py regenerate_invitation --code <CODIGO_INVITACION>
 ```
 
 La nueva URL de validacion dejara de coincidir con el token anterior porque cambia `token_version`.
+
+## Flujo de validacion en ingreso
+
+- El QR dirige a `GET /invitaciones/validar/?token=...`.
+- La pantalla muestra uno de estos estados: valida, ya utilizada, anulada o inexistente.
+- Cada consulta registra trazabilidad basica en `ValidationLog`.
+- Marcar una invitacion como usada requiere sesion autenticada de personal `is_staff`.
+- El marcado se hace con `POST /invitaciones/usar/` y usa bloqueo transaccional para evitar doble uso accidental.
+- La vista esta optimizada para celular y puede asociar un punto de acceso activo cuando exista.
+
+### Probar el flujo localmente
+
+1. Crea o reutiliza un usuario con permisos de staff:
+
+```bash
+set -a
+source .env
+set +a
+uv run python manage.py createsuperuser
+```
+
+2. Desde `/admin/`, crea:
+- una ceremonia
+- uno o mas puntos de acceso para esa ceremonia
+- un graduando con `academic_program` y `invitation_quota`
+
+3. Genera las invitaciones:
+
+```bash
+set -a
+source .env
+set +a
+uv run python manage.py issue_invitations --graduate-id <ID_DEL_GRADUANDO>
+```
+
+4. Abre en el navegador del celular o del computador la URL `validar` que imprime el comando.
+5. Confirma que la pantalla muestre `Invitacion valida`.
+6. Inicia sesion en `/admin/login/` con el usuario staff y vuelve a la URL de validacion.
+7. Usa el boton `Marcar como usada`.
+8. Recarga o escanea de nuevo el mismo QR: ahora debe mostrarse `Invitacion ya utilizada`.
+
+### Verificar trazabilidad
+
+En `/admin/` revisa:
+
+- `Invitaciones`: estado `Usada`, fecha y usuario de validacion.
+- `Registros de validacion`: resultado, IP, user agent, punto de acceso y si la accion marco la invitacion como usada.
