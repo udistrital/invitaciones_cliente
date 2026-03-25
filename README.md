@@ -1,29 +1,77 @@
 # Sistema de Invitaciones
 
-Proyecto base en Django para gestionar ceremonias de grado, graduandos e invitaciones digitales con validación posterior mediante QR.
+Aplicacion web en Django para administrar ceremonias de grado, graduandos e invitaciones digitales con validacion por QR, trazabilidad de ingreso y un backoffice operativo para Secretaria Academica.
 
-## Stack inicial
+## Descripcion del proyecto
 
-- Python 3.9+
-- Django 4.2 LTS
-- PostgreSQL
-- `uv` para gestión local de dependencias
+El sistema cubre un flujo institucional simple:
 
-## Requisitos previos
+- registrar ceremonias y graduandos,
+- definir cupos de invitaciones por graduando,
+- emitir invitaciones con codigo y token firmado,
+- generar QR y PDF bajo demanda,
+- validar invitaciones en ingreso,
+- registrar trazabilidad de consultas y usos,
+- operar el proceso desde admin Django y backoffice.
 
-- Tener una base de datos PostgreSQL creada.
-- Tener disponibles las variables de entorno requeridas.
+La solucion prioriza mantenibilidad y velocidad de entrega. No almacena archivos binarios en base de datos ni en disco para QR/PDF; ambos se reconstruyen cuando se necesitan.
 
-## Variables de entorno
+## Arquitectura
 
-Usa `.env.example` como referencia:
+La aplicacion sigue un monolito modular sobre Django 4.2:
+
+- `apps/core`: utilidades compartidas y health check.
+- `apps/ceremonies`: dominio de ceremonias.
+- `apps/graduates`: dominio de graduandos.
+- `apps/invitations`: emision, token firmado, QR, PDF, validacion y trazabilidad.
+- `apps/backoffice`: interfaz operativa para personal staff.
+- `config/`: configuracion Django, URLs y entrypoints ASGI/WSGI.
+- `docs/adr/`: decisiones de arquitectura.
+
+Decisiones clave:
+
+- PostgreSQL como base de datos principal.
+- Tokens firmados con `public_id + token_version`.
+- Regeneracion por rotacion de `token_version`.
+- QR y PDF generados en memoria.
+- Backoffice simple sobre vistas Django protegidas por `is_staff`.
+
+## Requisitos
+
+- Python 3.9 o superior
+- PostgreSQL disponible
+- `uv` recomendado para dependencias y ejecucion local
+
+Tambien puedes usar el entorno virtual incluido localmente si ya existe `.venv`.
+
+## Instalacion
+
+1. Crea y ajusta variables de entorno en `.env`.
+2. Sincroniza dependencias:
 
 ```bash
-cp .env.example .env
-set -a
-source .env
-set +a
+uv sync
 ```
+
+3. Crea la base de datos si aun no existe:
+
+```bash
+createdb -h 127.0.0.1 -U postgres sistema_invitaciones
+```
+
+4. Ejecuta migraciones:
+
+```bash
+uv run python manage.py migrate
+```
+
+5. Crea un usuario administrador o staff:
+
+```bash
+uv run python manage.py createsuperuser
+```
+
+## Variables de entorno
 
 Variables obligatorias:
 
@@ -35,11 +83,28 @@ Variables obligatorias:
 - `DB_PASSWORD`
 - `DB_HOST`
 - `DB_PORT`
-- `APP_BASE_URL` recomendado para que los enlaces del QR y del PDF apunten a la URL correcta
+- `APP_BASE_URL`
+
+Variables adicionales del proyecto:
+
+- `USE_X_FORWARDED_FOR`
+
+Ejemplo base en `.env.example`:
+
+```env
+SECRET_KEY=change-me-with-a-secure-random-value
+DEBUG=True
+ALLOWED_HOSTS=127.0.0.1,localhost
+DB_NAME=sistema_invitaciones
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_HOST=127.0.0.1
+DB_PORT=5432
+APP_BASE_URL=http://127.0.0.1:8000
+USE_X_FORWARDED_FOR=False
+```
 
 ### Cargar `.env` en PowerShell
-
-Trabajando en PowerShell, se pueden cargar las variables antes de correr comandos Django asi:
 
 ```powershell
 Get-Content .env | ForEach-Object {
@@ -50,36 +115,40 @@ Get-Content .env | ForEach-Object {
 }
 ```
 
-## Instalacion
+## Migraciones
 
-Despues de cargar `.env` en shell, ejecuta:
+Aplicar migraciones:
 
 ```bash
-uv sync
-createdb -h 127.0.0.1 -U postgres sistema_invitaciones
 uv run python manage.py migrate
-uv run python manage.py createsuperuser
 ```
 
-Si tu instancia PostgreSQL usa otro usuario, host o contrasena, ajusta primero el archivo `.env`.
+Verificar que no existan cambios de modelo pendientes:
+
+```bash
+uv run python manage.py makemigrations --check
+```
 
 ## Ejecucion local
 
-Con las variables ya cargadas:
+Con variables ya cargadas:
 
 ```bash
 uv run python manage.py runserver
 ```
 
-Puntos de verificacion iniciales:
+Puntos utiles:
 
-- `http://127.0.0.1:8000/health/`
-- `http://127.0.0.1:8000/admin/`
-- `http://127.0.0.1:8000/gestion/`
+- `GET /health/`
+- `GET /admin/`
+- `GET /gestion/`
+- `GET /invitaciones/validar/?token=...`
 
-## Validaciones basicas
+## Pruebas
 
-Con las variables ya cargadas:
+El proyecto usa el framework de pruebas de Django con `django.test.TestCase`.
+
+Chequeos recomendados:
 
 ```bash
 uv run python manage.py check
@@ -87,209 +156,122 @@ uv run python manage.py makemigrations --check
 uv run python manage.py test
 ```
 
-El proyecto ya usa el framework de pruebas de Django (`django.test.TestCase`).
-
-Para correr solo la suite minima de invitaciones:
+Suite smoke minima de invitaciones:
 
 ```bash
 uv run python manage.py test apps.invitations.tests_smoke
 ```
 
-Para correr toda la suite:
+Suite completa:
 
 ```bash
 uv run python manage.py test
 ```
 
-## Estructura inicial
+## Flujo funcional
 
-```text
-config/               Configuracion Django
-apps/core/            Utilidades compartidas y health check
-apps/ceremonies/      Modelo de ceremonias
-apps/graduates/       Modelo de graduandos
-apps/invitations/     Invitaciones, QR, PDF y registros de validacion
-docs/adr/             Decisiones arquitectonicas
+### 1. Configuracion operativa
+
+- Crear ceremonia.
+- Crear graduandos.
+- Definir `invitation_quota`.
+- Crear puntos de acceso si se validara en sitio.
+
+### 2. Emision de invitaciones
+
+Por backoffice:
+
+- `/gestion/graduandos/` para generar por graduando.
+- `/gestion/ceremonias/` para generar por ceremonia.
+
+Por comando:
+
+```bash
+uv run python manage.py issue_invitations --graduate-id 1
+uv run python manage.py issue_invitations --ceremony-code GRADOS-2026-01
 ```
 
-## Modelo de dominio actual
+### 3. Activos generados
 
-- Una `Ceremony` agrupa graduandos y puntos de acceso.
-- Un `Graduate` pertenece a una ceremonia y define su `invitation_quota`.
-- Una `Invitation` pertenece a un graduando, tiene `sequence_number`, `public_id`, `code`, `token_version` y estado.
-- Un `AccessPoint` representa una puerta, filtro o punto operativo de validación para una ceremonia.
-- Un `ValidationLog` registra cada intento de validación con resultado, usuario, punto de acceso, dispositivo, IP y agente de usuario.
+- URL de validacion con token firmado
+- PDF de invitacion
+- QR derivado de la URL de validacion
 
-La estrategia del QR usa token firmado con `public_id + token_version`, sin almacenar el token en texto plano ni su hash persistente.
-
-## Emision de invitaciones
-
-La generacion de activos se hace bajo demanda:
-
-- el token se firma con `public_id + token_version`,
-- el QR se genera como PNG en memoria,
-- el PDF se genera en memoria con ReportLab,
-- no se almacenan archivos binarios en base de datos ni en disco,
-- si una invitacion debe regenerarse, se rota `token_version` y los activos se reconstruyen con el nuevo token.
-
-Rutas disponibles:
+Rutas relevantes:
 
 - `GET /invitaciones/validar/?token=...`
 - `POST /invitaciones/usar/`
 - `GET /invitaciones/descargar/?token=...`
 - `GET /invitaciones/qr/<public_id>/` solo para personal `is_staff`
 
-Comandos disponibles:
+### 4. Validacion de ingreso
+
+- El QR lleva a la pantalla de validacion.
+- El sistema muestra si la invitacion esta valida, usada, anulada o no existe.
+- Personal `is_staff` puede marcarla como usada.
+- Cada consulta genera trazabilidad operativa.
+
+### 5. Regeneracion y anulacion
+
+Regeneracion:
+
+- rota `token_version`,
+- invalida QR y enlaces anteriores,
+- mantiene el mismo registro de invitacion,
+- solo se permite para invitaciones no usadas y no anuladas.
+
+Comando:
 
 ```bash
-uv run python manage.py issue_invitations --graduate-id 1
-uv run python manage.py issue_invitations --ceremony-code GRADOS-2026-01
 uv run python manage.py regenerate_invitation --code INV-XXXXXXXXXXXX
 ```
 
-## Alcance de esta fase
+Backoffice:
 
-Esta fase deja listo:
+- detalle de invitacion en `/gestion/invitaciones/<pk>/`
 
-- el arranque del proyecto,
-- la conexion a PostgreSQL por variables de entorno,
-- el modelo de datos de ceremonias, graduandos e invitaciones,
-- la emision de invitaciones por graduando o ceremonia,
-- el token firmado para validacion,
-- la generacion bajo demanda de QR y PDF,
-- la descarga del PDF y la consulta del estado,
-- la regeneracion de invitaciones mediante rotacion de `token_version`,
-- el flujo de validacion con trazabilidad basica,
-- backoffice y admin tecnico para operacion.
+Anulacion:
 
-## Probar la generacion localmente
+- disponible para invitaciones no usadas,
+- bloquea el uso posterior.
 
-1. Provisiona el runtime local:
+## Datos semilla / carga inicial
+
+Se incluye un comando idempotente para cargar datos demo locales:
 
 ```bash
-uv sync
+uv run python manage.py seed_demo_data
 ```
 
-2. Carga las variables de entorno desde `.env` en tu shell.
-3. Ejecuta migraciones y crea un usuario staff:
+El comando crea o reutiliza:
 
-```bash
-uv run python manage.py migrate
-uv run python manage.py createsuperuser
-```
+- una ceremonia demo,
+- dos puntos de acceso,
+- dos graduandos,
+- sus invitaciones iniciales.
 
-4. Inicia la aplicacion:
+Esto deja el proyecto listo para revisar el flujo funcional desde `/gestion/` y `/admin/`.
 
-```bash
-uv run python manage.py runserver
-```
+## Seguridad y operacion
 
-5. Crea una ceremonia y un graduando desde `/admin/` o desde `/gestion/`.
-6. Asegura que el graduando tenga `academic_program` y `invitation_quota` configurados.
-7. Genera las invitaciones:
+- El QR y los enlaces usan token firmado; modificar el token invalida la firma.
+- Los QR preview directos requieren sesion staff.
+- Las respuestas asociadas a token usan politicas para reducir cacheo y fuga por `Referer`.
+- La IP real no usa `X-Forwarded-For` salvo configuracion explicita.
+- QR y PDF se generan en memoria; no hay archivos temporales persistentes del flujo.
+- Para despliegues institucionales se recomienda `DEBUG=False`, `APP_BASE_URL` con `https://` y `SECRET_KEY` real.
 
-```bash
-uv run python manage.py issue_invitations --graduate-id <ID_DEL_GRADUANDO>
-```
+## Mejoras futuras
 
-8. El comando imprimira las URLs de validacion y descarga del PDF.
-9. Abre la URL `descargar` en el navegador para ver el PDF con universidad, secretaria academica, graduando, programa, fecha, hora, lugar, codigo y QR.
-10. Abre la URL `validar` para comprobar que el token firmado es verificable.
-11. Si necesitas invalidar el QR anterior y regenerar la invitacion por consola:
+Ver `docs/FUTURE_IMPROVEMENTS.md`.
 
-```bash
-uv run python manage.py regenerate_invitation --code <CODIGO_INVITACION>
-```
+## Que falta para produccion
 
-12. Si prefieres hacerlo desde interfaz, entra a `/gestion/invitaciones/`, abre el detalle de la invitacion y usa `Regenerar invitacion`.
-
-La nueva URL de validacion dejara de coincidir con el token anterior porque cambia `token_version`. La regeneracion solo esta permitida para invitaciones no usadas y no anuladas.
-
-## Flujo de validacion en ingreso
-
-- El QR dirige a `GET /invitaciones/validar/?token=...`.
-- La pantalla muestra uno de estos estados: valida, ya utilizada, anulada o inexistente.
-- Cada consulta registra trazabilidad basica en `ValidationLog`.
-- Marcar una invitacion como usada requiere sesion autenticada de personal `is_staff`.
-- El marcado se hace con `POST /invitaciones/usar/` y usa bloqueo transaccional para evitar doble uso accidental.
-- La vista esta optimizada para celular y puede asociar un punto de acceso activo cuando exista.
-
-### Probar el flujo localmente
-
-1. Crea o reutiliza un usuario con permisos de staff:
-
-```bash
-uv run python manage.py createsuperuser
-```
-
-2. Desde `/admin/` o `/gestion/`, crea:
-- una ceremonia
-- uno o mas puntos de acceso para esa ceremonia
-- un graduando con `academic_program` y `invitation_quota`
-
-3. Genera las invitaciones:
-
-```bash
-uv run python manage.py issue_invitations --graduate-id <ID_DEL_GRADUANDO>
-```
-
-4. Abre en el navegador del celular o del computador la URL `validar` que imprime el comando.
-5. Confirma que la pantalla muestre `Invitacion valida`.
-6. Inicia sesion en `/admin/login/` con el usuario staff y vuelve a la URL de validacion.
-7. Usa el boton `Marcar como usada`.
-8. Recarga o escanea de nuevo el mismo QR: ahora debe mostrarse `Invitacion ya utilizada`.
-
-### Verificar trazabilidad
-
-En `/admin/` revisa:
-
-- `Invitaciones`: estado `Usada`, fecha y usuario de validacion.
-- `Registros de validacion`: resultado, IP, user agent, punto de acceso y si la accion marco la invitacion como usada.
-
-## Interfaz administrativa para Secretaria Academica
-
-Ademas del admin tecnico de Django, el proyecto incluye un backoffice minimo en:
-
-- `GET /gestion/`
-
-Funciones disponibles:
-
-- crear y editar ceremonias,
-- registrar y editar graduandos,
-- definir el numero de invitaciones por graduando,
-- generar invitaciones por graduando o por ceremonia,
-- listar invitaciones generadas,
-- consultar estado de validacion,
-- descargar el PDF de una invitacion,
-- regenerar invitaciones no usadas ni anuladas,
-- anular invitaciones no usadas.
-
-### Uso basico
-
-1. Inicia sesion con un usuario `is_staff`.
-2. Abre `/gestion/`.
-3. Crea la ceremonia en `Ceremonias`.
-4. Registra graduandos en `Graduandos`.
-5. Usa `Generar` para emitir invitaciones.
-6. Consulta y administra el resultado en `Invitaciones`.
-7. En el detalle de una invitacion puedes descargar el PDF, consultar el estado, regenerarla o anularla segun su estado.
-
-### Notas operativas
-
-- La anulacion de invitaciones bloquea su uso posterior.
-- La regeneracion rota `token_version` e invalida inmediatamente el QR y el enlace anteriores.
-- No se permite regenerar una invitacion que ya fue utilizada.
-- No se permite regenerar una invitacion anulada.
-- No se permite anular una invitacion que ya fue utilizada.
-- El backoffice reutiliza la autenticacion de Django y mantiene el codigo simple; no reemplaza el admin tecnico, lo complementa.
-
-## Consideraciones de seguridad
-
-- El QR y los enlaces publicos usan token firmado; modificar el contenido invalida la firma.
-- El `public_id` es UUID4 y el preview directo del QR queda restringido a personal `is_staff`.
-- Las respuestas asociadas a token usan `no-store` y `Referrer-Policy: no-referrer` para reducir cacheo y fuga del enlace firmado.
-- La validacion repetida del mismo token en una ventana corta reutiliza el mismo registro de trazabilidad para reducir ruido operativo.
-- La pantalla publica no expone usuario operador, IP ni punto de acceso del ultimo uso; esos datos solo se muestran a personal autenticado `is_staff`.
-- No se generan archivos temporales persistentes para QR o PDF; ambos se construyen en memoria.
-- Por defecto no se confia en `X-Forwarded-For`; solo habilitalo si el despliegue realmente esta detras de un proxy controlado y configura `USE_X_FORWARDED_FOR=True`.
-- En entornos institucionales usa `DEBUG=False`, una `SECRET_KEY` aleatoria real, `ALLOWED_HOSTS` acotado y `APP_BASE_URL` con `https://`.
+- pipeline CI con pruebas y validaciones automaticas,
+- configuracion de despliegue segura por ambiente,
+- monitoreo y logging estructurado,
+- backup y restauracion de PostgreSQL,
+- politicas de acceso, rotacion de secretos y operacion institucional,
+- endurecimiento HTTP completo en un entorno HTTPS real,
+- proceso formal de provisionamiento de usuarios staff,
+- pruebas automatizadas ejecutadas en CI y no solo localmente.

@@ -147,10 +147,8 @@ def invitation_validate_view(request):
 def invitation_mark_used_view(request):
     token = request.POST.get("token", "")
     try:
-        preview_invitation = get_invitation_from_token(token)
-        ceremony = preview_invitation.graduate.ceremony
+        ceremony = get_invitation_from_token(token).graduate.ceremony
     except InvalidInvitationToken:
-        preview_invitation = None
         ceremony = None
 
     form = InvitationUseForm(request.POST, ceremony=ceremony)
