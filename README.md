@@ -87,6 +87,20 @@ uv run python manage.py makemigrations --check
 uv run python manage.py test
 ```
 
+El proyecto ya usa el framework de pruebas de Django (`django.test.TestCase`).
+
+Para correr solo la suite minima de invitaciones:
+
+```bash
+uv run python manage.py test apps.invitations.tests_smoke
+```
+
+Para correr toda la suite:
+
+```bash
+uv run python manage.py test
+```
+
 ## Estructura inicial
 
 ```text
