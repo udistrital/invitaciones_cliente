@@ -261,6 +261,8 @@ class InvitationModelTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertEqual(response["Referrer-Policy"], "no-referrer")
         self.assertEqual(response.json()["invitation"]["code"], invitation.code)
 
     def test_validation_page_renders_valid_state_for_mobile_flow(self):
@@ -328,9 +330,11 @@ class InvitationModelTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertEqual(response["Referrer-Policy"], "no-referrer")
         self.assertTrue(response.content.startswith(b"%PDF"))
 
-    def test_qr_preview_endpoint_returns_png(self):
+    def test_qr_preview_endpoint_requires_staff_session(self):
         invitation = Invitation.objects.create(
             graduate=self.graduate,
             sequence_number=1,
@@ -340,8 +344,24 @@ class InvitationModelTest(TestCase):
             reverse("invitation-qr-image", kwargs={"public_id": invitation.public_id})
         )
 
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("admin:login"), response["Location"])
+
+    def test_qr_preview_endpoint_returns_png_for_staff(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("invitation-qr-image", kwargs={"public_id": invitation.public_id})
+        )
+
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/png")
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertEqual(response["Referrer-Policy"], "no-referrer")
         self.assertTrue(response.content.startswith(b"\x89PNG\r\n\x1a\n"))
 
     def test_validation_get_creates_trace_log(self):
@@ -358,6 +378,92 @@ class InvitationModelTest(TestCase):
         log = ValidationLog.objects.get()
         self.assertEqual(log.result, ValidationLog.Result.VALID)
         self.assertFalse(log.marked_as_used)
+
+    def test_validation_get_deduplicates_identical_attempts_in_short_window(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+
+        self.client.get(reverse("invitation-validate"), {"token": token})
+        self.client.get(reverse("invitation-validate"), {"token": token})
+
+        self.assertEqual(ValidationLog.objects.count(), 1)
+
+    def test_validation_get_does_not_persist_access_point_for_anonymous_session(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+
+        response = self.client.get(
+            reverse("invitation-validate"),
+            {"token": token, "access_point": self.access_point.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("validation_access_point_id", self.client.session)
+
+    def test_validation_get_persists_access_point_for_staff_session(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("invitation-validate"),
+            {"token": token, "access_point": self.access_point.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.client.session.get("validation_access_point_id"),
+            self.access_point.pk,
+        )
+
+    def test_validation_page_hides_internal_usage_metadata_for_anonymous_user(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.USED,
+            used_at=timezone.now(),
+            used_by=self.user,
+            used_access_point=self.access_point,
+            used_from_ip="10.0.0.15",
+        )
+        token = generate_invitation_token(invitation)
+
+        response = self.client.get(reverse("invitation-validate"), {"token": token})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ultimo uso registrado")
+        self.assertNotContains(response, self.user.get_username())
+        self.assertNotContains(response, self.access_point.name)
+        self.assertNotContains(response, "10.0.0.15")
+
+    def test_validation_page_shows_internal_usage_metadata_for_staff(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.USED,
+            used_at=timezone.now(),
+            used_by=self.user,
+            used_access_point=self.access_point,
+            used_from_ip="10.0.0.15",
+        )
+        token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("invitation-validate"), {"token": token})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.user.get_username())
+        self.assertContains(response, self.access_point.name)
+        self.assertContains(response, "10.0.0.15")
 
     def test_mark_used_endpoint_consumes_valid_invitation_once(self):
         invitation = Invitation.objects.create(

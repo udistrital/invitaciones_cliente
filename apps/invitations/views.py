@@ -4,6 +4,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.invitations.forms import InvitationUseForm
@@ -43,6 +44,11 @@ STATUS_UI = {
         "tone": "neutral",
     },
 }
+
+
+def apply_invitation_response_security(response):
+    response["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 def wants_json_response(request) -> bool:
@@ -113,18 +119,22 @@ def render_validation_response(request, outcome, form=None, *, status_code=200):
                     else None
                 ),
             }
-        return JsonResponse(payload, status=status_code)
+        return apply_invitation_response_security(
+            JsonResponse(payload, status=status_code)
+        )
 
     context = build_validation_context(request, outcome, form=form)
-    return render(
+    response = render(
         request,
         "invitations/validate.html",
         context,
         status=status_code,
     )
+    return apply_invitation_response_security(response)
 
 
 @require_GET
+@never_cache
 def invitation_validate_view(request):
     token = request.GET.get("token", "")
     outcome = inspect_invitation_token(token, request)
@@ -133,6 +143,7 @@ def invitation_validate_view(request):
 
 @require_POST
 @staff_member_required
+@never_cache
 def invitation_mark_used_view(request):
     token = request.POST.get("token", "")
     try:
@@ -155,26 +166,37 @@ def invitation_mark_used_view(request):
 
 
 @require_GET
+@never_cache
 def invitation_pdf_download_view(request):
     token = request.GET.get("token", "")
     try:
         invitation = get_invitation_from_token(token)
     except InvalidInvitationToken:
-        return HttpResponse("Invitacion inexistente.", status=404, content_type="text/plain")
+        return apply_invitation_response_security(
+            HttpResponse(
+                "Invitacion no disponible.",
+                status=404,
+                content_type="text/plain",
+            )
+        )
     pdf_bytes = generate_invitation_pdf(invitation, request=request)
 
     response = HttpResponse(pdf_bytes, content_type="application/pdf")
     response["Content-Disposition"] = (
         f'inline; filename="{invitation.code.lower()}-invitacion.pdf"'
     )
-    return response
+    return apply_invitation_response_security(response)
 
 
 @require_GET
+@staff_member_required
+@never_cache
 def invitation_qr_view(request, public_id):
     invitation = get_object_or_404(
         Invitation.objects.select_related("graduate", "graduate__ceremony"),
         public_id=public_id,
     )
     png_bytes = generate_qr_code_png(invitation, request=request)
-    return HttpResponse(png_bytes, content_type="image/png")
+    return apply_invitation_response_security(
+        HttpResponse(png_bytes, content_type="image/png")
+    )

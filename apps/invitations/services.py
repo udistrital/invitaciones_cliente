@@ -1,5 +1,6 @@
 import hashlib
 import io
+from datetime import timedelta
 from dataclasses import dataclass
 from urllib.parse import urlencode
 from typing import List, Optional
@@ -265,9 +266,10 @@ def cancel_invitation(invitation: Invitation) -> Invitation:
 
 
 def get_client_ip(request) -> str:
-    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+    if getattr(settings, "USE_X_FORWARDED_FOR", False):
+        forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
     return request.META.get("REMOTE_ADDR", "")
 
 
@@ -280,6 +282,11 @@ def get_validator_user(request):
     if user and user.is_authenticated:
         return user
     return None
+
+
+def has_staff_session(request) -> bool:
+    user = getattr(request, "user", None)
+    return bool(user and user.is_authenticated and user.is_staff)
 
 
 def get_invitation_state(invitation: Invitation) -> str:
@@ -317,7 +324,7 @@ def get_display_state(state: str) -> str:
 def resolve_access_point(request, ceremony=None, *, allow_session=True):
     access_point_id = request.POST.get("access_point") or request.GET.get("access_point")
 
-    if not access_point_id and allow_session:
+    if not access_point_id and allow_session and has_staff_session(request):
         access_point_id = request.session.get("validation_access_point_id")
 
     if not access_point_id or ceremony is None:
@@ -332,8 +339,41 @@ def resolve_access_point(request, ceremony=None, *, allow_session=True):
 
 
 def persist_validation_context(request, access_point: Optional[AccessPoint]) -> None:
-    if access_point is not None:
+    if access_point is not None and has_staff_session(request):
         request.session["validation_access_point_id"] = access_point.pk
+
+
+def find_recent_validation_log(
+    *,
+    token_fingerprint: str,
+    invitation: Optional[Invitation],
+    validator,
+    access_point: Optional[AccessPoint],
+    device_label: str,
+    result: str,
+    marked_as_used: bool,
+    source_ip: Optional[str],
+):
+    dedup_window_seconds = getattr(settings, "VALIDATION_LOG_DEDUP_WINDOW_SECONDS", 0)
+    if dedup_window_seconds <= 0 or not token_fingerprint:
+        return None
+
+    window_start = timezone.now() - timedelta(seconds=dedup_window_seconds)
+    return (
+        ValidationLog.objects.filter(
+            token_fingerprint=token_fingerprint,
+            invitation=invitation,
+            validator=validator,
+            access_point=access_point,
+            device_label=device_label,
+            result=result,
+            marked_as_used=marked_as_used,
+            source_ip=source_ip,
+            validated_at__gte=window_start,
+        )
+        .order_by("-validated_at")
+        .first()
+    )
 
 
 def log_validation_attempt(
@@ -345,15 +385,33 @@ def log_validation_attempt(
     marked_as_used: bool = False,
     access_point: Optional[AccessPoint] = None,
 ) -> ValidationLog:
-    return ValidationLog.objects.create(
+    token_fingerprint = get_token_fingerprint(token)
+    validator = get_validator_user(request)
+    device_label = get_device_label(request)
+    source_ip = get_client_ip(request) or None
+
+    duplicate_log = find_recent_validation_log(
+        token_fingerprint=token_fingerprint,
         invitation=invitation,
-        token_fingerprint=get_token_fingerprint(token),
-        validator=get_validator_user(request),
+        validator=validator,
         access_point=access_point,
-        device_label=get_device_label(request),
+        device_label=device_label,
         result=result,
         marked_as_used=marked_as_used,
-        source_ip=get_client_ip(request) or None,
+        source_ip=source_ip,
+    )
+    if duplicate_log is not None:
+        return duplicate_log
+
+    return ValidationLog.objects.create(
+        invitation=invitation,
+        token_fingerprint=token_fingerprint,
+        validator=validator,
+        access_point=access_point,
+        device_label=device_label,
+        result=result,
+        marked_as_used=marked_as_used,
+        source_ip=source_ip,
         user_agent=request.META.get("HTTP_USER_AGENT", ""),
     )
 

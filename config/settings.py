@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -24,6 +25,21 @@ def get_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def normalize_base_url(value: str) -> str:
+    parsed = urlparse(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ImproperlyConfigured(
+            "APP_BASE_URL must be an absolute http or https URL."
+        )
+    if parsed.query or parsed.fragment:
+        raise ImproperlyConfigured(
+            "APP_BASE_URL must not include query string or fragment."
+        )
+
+    normalized_path = parsed.path.rstrip("/")
+    return f"{parsed.scheme}://{parsed.netloc}{normalized_path}"
+
+
 SECRET_KEY = get_env("SECRET_KEY", required=True)
 DEBUG = get_bool("DEBUG", False)
 ALLOWED_HOSTS = [
@@ -31,6 +47,11 @@ ALLOWED_HOSTS = [
     for host in get_env("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
     if host.strip()
 ]
+
+if not DEBUG and SECRET_KEY.startswith("change-me"):
+    raise ImproperlyConfigured(
+        "SECRET_KEY must be replaced with a secure random value when DEBUG=False."
+    )
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -99,7 +120,21 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-APP_BASE_URL = get_env("APP_BASE_URL", "http://127.0.0.1:8000")
+APP_BASE_URL = normalize_base_url(get_env("APP_BASE_URL", "http://127.0.0.1:8000"))
+USE_X_FORWARDED_FOR = get_bool("USE_X_FORWARDED_FOR", False)
+VALIDATION_LOG_DEDUP_WINDOW_SECONDS = 15
+
+IS_HTTPS_BASE_URL = APP_BASE_URL.startswith("https://")
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SECURE = IS_HTTPS_BASE_URL
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SECURE = IS_HTTPS_BASE_URL
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+SECURE_REFERRER_POLICY = "same-origin"
+
 UNIVERSITY_NAME = "Universidad Distrital Francisco Jose de Caldas"
 ACADEMIC_OFFICE_NAME = "Secretaria Academica"
 INVITATION_VALIDATION_NOTE = (

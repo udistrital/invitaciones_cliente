@@ -123,7 +123,7 @@ Rutas disponibles:
 - `GET /invitaciones/validar/?token=...`
 - `POST /invitaciones/usar/`
 - `GET /invitaciones/descargar/?token=...`
-- `GET /invitaciones/qr/<public_id>/`
+- `GET /invitaciones/qr/<public_id>/` solo para personal `is_staff`
 
 Comandos disponibles:
 
@@ -268,3 +268,14 @@ Funciones disponibles:
 - No se permite regenerar una invitacion anulada.
 - No se permite anular una invitacion que ya fue utilizada.
 - El backoffice reutiliza la autenticacion de Django y mantiene el codigo simple; no reemplaza el admin tecnico, lo complementa.
+
+## Consideraciones de seguridad
+
+- El QR y los enlaces publicos usan token firmado; modificar el contenido invalida la firma.
+- El `public_id` es UUID4 y el preview directo del QR queda restringido a personal `is_staff`.
+- Las respuestas asociadas a token usan `no-store` y `Referrer-Policy: no-referrer` para reducir cacheo y fuga del enlace firmado.
+- La validacion repetida del mismo token en una ventana corta reutiliza el mismo registro de trazabilidad para reducir ruido operativo.
+- La pantalla publica no expone usuario operador, IP ni punto de acceso del ultimo uso; esos datos solo se muestran a personal autenticado `is_staff`.
+- No se generan archivos temporales persistentes para QR o PDF; ambos se construyen en memoria.
+- Por defecto no se confia en `X-Forwarded-For`; solo habilitalo si el despliegue realmente esta detras de un proxy controlado y configura `USE_X_FORWARDED_FOR=True`.
+- En entornos institucionales usa `DEBUG=False`, una `SECRET_KEY` aleatoria real, `ALLOWED_HOSTS` acotado y `APP_BASE_URL` con `https://`.

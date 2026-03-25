@@ -48,13 +48,13 @@
         <div class="panel" style="margin-bottom: 18px;">
             <h2>Ultimo uso registrado</h2>
             <p>Fecha y hora: {{ invitation.used_at|date:"d/m/Y h:i A" }}</p>
-            {% if invitation.used_by %}
+            {% if request.user.is_authenticated and request.user.is_staff and invitation.used_by %}
             <p>Validado por: {{ invitation.used_by.get_username }}</p>
             {% endif %}
-            {% if invitation.used_access_point %}
+            {% if request.user.is_authenticated and request.user.is_staff and invitation.used_access_point %}
             <p>Punto de acceso: {{ invitation.used_access_point.name }}</p>
             {% endif %}
-            {% if invitation.used_from_ip %}
+            {% if request.user.is_authenticated and request.user.is_staff and invitation.used_from_ip %}
             <p>IP: {{ invitation.used_from_ip }}</p>
             {% endif %}
         </div>
