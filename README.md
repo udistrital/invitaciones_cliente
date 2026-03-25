@@ -35,41 +35,53 @@ Variables obligatorias:
 - `DB_PASSWORD`
 - `DB_HOST`
 - `DB_PORT`
+- `APP_BASE_URL` recomendado para que los enlaces del QR y del PDF apunten a la URL correcta
 
-## Instalación
+### Cargar `.env` en PowerShell
+
+Trabajando en PowerShell, se pueden cargar las variables antes de correr comandos Django asi:
+
+```powershell
+Get-Content .env | ForEach-Object {
+    if ($_ -notmatch '^\s*#' -and $_ -match '=') {
+        $name, $value = $_ -split '=', 2
+        Set-Item -Path "Env:$name" -Value $value
+    }
+}
+```
+
+## Instalacion
+
+Despues de cargar `.env` en shell, ejecuta:
 
 ```bash
 uv sync
 createdb -h 127.0.0.1 -U postgres sistema_invitaciones
-set -a
-source .env
-set +a
 uv run python manage.py migrate
 uv run python manage.py createsuperuser
 ```
 
-Si tu instancia PostgreSQL usa otro usuario, host o contraseña, ajusta primero el archivo `.env`.
+Si tu instancia PostgreSQL usa otro usuario, host o contrasena, ajusta primero el archivo `.env`.
 
-## Ejecución local
+## Ejecucion local
+
+Con las variables ya cargadas:
 
 ```bash
-set -a
-source .env
-set +a
 uv run python manage.py runserver
 ```
 
-Puntos de verificación iniciales:
+Puntos de verificacion iniciales:
 
 - `http://127.0.0.1:8000/health/`
 - `http://127.0.0.1:8000/admin/`
+- `http://127.0.0.1:8000/gestion/`
 
-## Validaciones básicas
+## Validaciones basicas
+
+Con las variables ya cargadas:
 
 ```bash
-set -a
-source .env
-set +a
 uv run python manage.py check
 uv run python manage.py makemigrations --check
 uv run python manage.py test
@@ -78,12 +90,12 @@ uv run python manage.py test
 ## Estructura inicial
 
 ```text
-config/               Configuración Django
+config/               Configuracion Django
 apps/core/            Utilidades compartidas y health check
 apps/ceremonies/      Modelo de ceremonias
 apps/graduates/       Modelo de graduandos
-apps/invitations/     Invitaciones, puntos de acceso y registros de validación
-docs/adr/             Decisiones arquitectónicas
+apps/invitations/     Invitaciones, QR, PDF y registros de validacion
+docs/adr/             Decisiones arquitectonicas
 ```
 
 ## Modelo de dominio actual
@@ -94,7 +106,7 @@ docs/adr/             Decisiones arquitectónicas
 - Un `AccessPoint` representa una puerta, filtro o punto operativo de validación para una ceremonia.
 - Un `ValidationLog` registra cada intento de validación con resultado, usuario, punto de acceso, dispositivo, IP y agente de usuario.
 
-La estrategia del QR queda preparada para token firmado con `public_id + token_version`, sin almacenar el token en texto plano ni su hash persistente.
+La estrategia del QR usa token firmado con `public_id + token_version`, sin almacenar el token en texto plano ni su hash persistente.
 
 ## Emision de invitaciones
 
@@ -126,40 +138,58 @@ uv run python manage.py regenerate_invitation --code INV-XXXXXXXXXXXX
 Esta fase deja listo:
 
 - el arranque del proyecto,
-- la conexión a PostgreSQL por variables de entorno,
-- el modelo de datos inicial,
-- el registro en admin,
-- migraciones base,
-- pruebas smoke.
-
-Las fases siguientes cubrirán QR, PDF, importación masiva desde Excel y flujo de validación completo.
+- la conexion a PostgreSQL por variables de entorno,
+- el modelo de datos de ceremonias, graduandos e invitaciones,
+- la emision de invitaciones por graduando o ceremonia,
+- el token firmado para validacion,
+- la generacion bajo demanda de QR y PDF,
+- la descarga del PDF y la consulta del estado,
+- la regeneracion de invitaciones mediante rotacion de `token_version`,
+- el flujo de validacion con trazabilidad basica,
+- backoffice y admin tecnico para operacion.
 
 ## Probar la generacion localmente
 
-1. Crea una ceremonia y un graduando desde `/admin/`.
-2. Asegura que el graduando tenga `academic_program` y `invitation_quota` configurados.
-3. Genera las invitaciones:
+1. Provisiona el runtime local:
 
 ```bash
-set -a
-source .env
-set +a
+uv sync
+```
+
+2. Carga las variables de entorno desde `.env` en tu shell.
+3. Ejecuta migraciones y crea un usuario staff:
+
+```bash
+uv run python manage.py migrate
+uv run python manage.py createsuperuser
+```
+
+4. Inicia la aplicacion:
+
+```bash
+uv run python manage.py runserver
+```
+
+5. Crea una ceremonia y un graduando desde `/admin/` o desde `/gestion/`.
+6. Asegura que el graduando tenga `academic_program` y `invitation_quota` configurados.
+7. Genera las invitaciones:
+
+```bash
 uv run python manage.py issue_invitations --graduate-id <ID_DEL_GRADUANDO>
 ```
 
-4. El comando imprimira las URLs de validacion y descarga del PDF.
-5. Abre la URL `descargar` en el navegador para ver el PDF.
-6. Abre la URL `validar` para comprobar que el token firmado es verificable.
-7. Si necesitas invalidar el QR anterior y regenerar la invitacion:
+8. El comando imprimira las URLs de validacion y descarga del PDF.
+9. Abre la URL `descargar` en el navegador para ver el PDF con universidad, secretaria academica, graduando, programa, fecha, hora, lugar, codigo y QR.
+10. Abre la URL `validar` para comprobar que el token firmado es verificable.
+11. Si necesitas invalidar el QR anterior y regenerar la invitacion por consola:
 
 ```bash
-set -a
-source .env
-set +a
 uv run python manage.py regenerate_invitation --code <CODIGO_INVITACION>
 ```
 
-La nueva URL de validacion dejara de coincidir con el token anterior porque cambia `token_version`.
+12. Si prefieres hacerlo desde interfaz, entra a `/gestion/invitaciones/`, abre el detalle de la invitacion y usa `Regenerar invitacion`.
+
+La nueva URL de validacion dejara de coincidir con el token anterior porque cambia `token_version`. La regeneracion solo esta permitida para invitaciones no usadas y no anuladas.
 
 ## Flujo de validacion en ingreso
 
@@ -175,13 +205,10 @@ La nueva URL de validacion dejara de coincidir con el token anterior porque camb
 1. Crea o reutiliza un usuario con permisos de staff:
 
 ```bash
-set -a
-source .env
-set +a
 uv run python manage.py createsuperuser
 ```
 
-2. Desde `/admin/`, crea:
+2. Desde `/admin/` o `/gestion/`, crea:
 - una ceremonia
 - uno o mas puntos de acceso para esa ceremonia
 - un graduando con `academic_program` y `invitation_quota`
@@ -189,9 +216,6 @@ uv run python manage.py createsuperuser
 3. Genera las invitaciones:
 
 ```bash
-set -a
-source .env
-set +a
 uv run python manage.py issue_invitations --graduate-id <ID_DEL_GRADUANDO>
 ```
 
@@ -223,6 +247,7 @@ Funciones disponibles:
 - listar invitaciones generadas,
 - consultar estado de validacion,
 - descargar el PDF de una invitacion,
+- regenerar invitaciones no usadas ni anuladas,
 - anular invitaciones no usadas.
 
 ### Uso basico
@@ -233,9 +258,13 @@ Funciones disponibles:
 4. Registra graduandos en `Graduandos`.
 5. Usa `Generar` para emitir invitaciones.
 6. Consulta y administra el resultado en `Invitaciones`.
+7. En el detalle de una invitacion puedes descargar el PDF, consultar el estado, regenerarla o anularla segun su estado.
 
 ### Notas operativas
 
 - La anulacion de invitaciones bloquea su uso posterior.
+- La regeneracion rota `token_version` e invalida inmediatamente el QR y el enlace anteriores.
+- No se permite regenerar una invitacion que ya fue utilizada.
+- No se permite regenerar una invitacion anulada.
 - No se permite anular una invitacion que ya fue utilizada.
 - El backoffice reutiliza la autenticacion de Django y mantiene el codigo simple; no reemplaza el admin tecnico, lo complementa.

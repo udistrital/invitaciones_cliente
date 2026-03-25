@@ -27,6 +27,10 @@
                 <strong>{{ invitation.get_status_display }}</strong>
             </article>
             <article class="detail-card">
+                <span class="detail-label">Version de token</span>
+                <strong>{{ invitation.token_version }}</strong>
+            </article>
+            <article class="detail-card">
                 <span class="detail-label">Creada</span>
                 <strong>{{ invitation.created_at|date:"d/m/Y h:i A" }}</strong>
             </article>
@@ -39,6 +43,12 @@
         <div class="action-group action-group-block">
             <a class="link-button button-secondary" href="{{ validation_url }}" target="_blank" rel="noopener">Consultar estado</a>
             <a class="link-button button-secondary" href="{{ download_url }}" target="_blank" rel="noopener">Descargar PDF</a>
+            {% if invitation.status != 'cancelled' and invitation.status != 'used' %}
+            <form method="post" action="{% url 'backoffice:invitation-regenerate' invitation.pk %}">
+                {% csrf_token %}
+                <button class="button-secondary" type="submit">Regenerar invitacion</button>
+            </form>
+            {% endif %}
             {% if invitation.status != 'cancelled' and invitation.status != 'used' %}
             <form method="post" action="{% url 'backoffice:invitation-cancel' invitation.pk %}">
                 {% csrf_token %}

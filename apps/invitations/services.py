@@ -234,6 +234,11 @@ def issue_invitations_for_ceremony(ceremony) -> int:
 
 
 def rotate_invitation_token(invitation: Invitation) -> Invitation:
+    if invitation.status == Invitation.Status.USED:
+        raise ValidationError(
+            "No es posible regenerar una invitacion que ya fue utilizada."
+        )
+
     if invitation.status == Invitation.Status.CANCELLED:
         raise ValidationError(
             "No es posible regenerar una invitacion anulada."

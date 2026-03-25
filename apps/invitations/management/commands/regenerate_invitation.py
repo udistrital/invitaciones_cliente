@@ -24,7 +24,7 @@ class Command(BaseCommand):
         try:
             rotate_invitation_token(invitation)
         except ValidationError as exc:
-            raise CommandError(exc.message) from exc
+            raise CommandError(getattr(exc, "message", str(exc))) from exc
 
         self.stdout.write(
             self.style.SUCCESS(

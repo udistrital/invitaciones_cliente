@@ -1,4 +1,5 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 
 from apps.invitations.models import AccessPoint, Invitation, ValidationLog
 from apps.invitations.services import rotate_invitation_token
@@ -39,13 +40,26 @@ class InvitationAdmin(admin.ModelAdmin):
     @admin.action(description="Regenerar token de las invitaciones seleccionadas")
     def regenerate_selected_invitations(self, request, queryset):
         regenerated = 0
+        skipped = 0
         for invitation in queryset:
-            rotate_invitation_token(invitation)
-            regenerated += 1
+            try:
+                rotate_invitation_token(invitation)
+                regenerated += 1
+            except ValidationError:
+                skipped += 1
         self.message_user(
             request,
             f"Se regeneraron {regenerated} invitaciones.",
         )
+        if skipped:
+            self.message_user(
+                request,
+                (
+                    f"Se omitieron {skipped} invitaciones porque ya fueron usadas "
+                    "o estan anuladas."
+                ),
+                level=messages.WARNING,
+            )
 
 
 @admin.register(ValidationLog)

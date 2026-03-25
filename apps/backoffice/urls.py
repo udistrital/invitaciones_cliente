@@ -40,4 +40,9 @@ urlpatterns = [
         views.cancel_invitation_view,
         name="invitation-cancel",
     ),
+    path(
+        "invitaciones/<int:pk>/regenerar/",
+        views.regenerate_invitation_view,
+        name="invitation-regenerate",
+    ),
 ]

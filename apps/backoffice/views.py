@@ -21,6 +21,7 @@ from apps.invitations.services import (
     cancel_invitation,
     issue_invitations_for_ceremony,
     issue_invitations_for_graduate,
+    rotate_invitation_token,
 )
 
 
@@ -308,6 +309,32 @@ def cancel_invitation_view(request, pk):
         messages.success(request, f"La invitacion {invitation.code} fue anulada.")
     except ValidationError as exc:
         messages.error(request, str(exc))
+
+    next_url = request.POST.get("next") or reverse(
+        "backoffice:invitation-detail",
+        kwargs={"pk": invitation.pk},
+    )
+    return HttpResponseRedirect(next_url)
+
+
+@staff_member_required
+@require_POST
+def regenerate_invitation_view(request, pk):
+    invitation = get_object_or_404(
+        Invitation.objects.select_related("graduate", "graduate__ceremony"),
+        pk=pk,
+    )
+    try:
+        rotate_invitation_token(invitation)
+        messages.success(
+            request,
+            (
+                f"La invitacion {invitation.code} fue regenerada. "
+                f"Nueva version: {invitation.token_version}."
+            ),
+        )
+    except ValidationError as exc:
+        messages.error(request, getattr(exc, "message", str(exc)))
 
     next_url = request.POST.get("next") or reverse(
         "backoffice:invitation-detail",

@@ -2,6 +2,7 @@ import io
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
@@ -201,6 +202,29 @@ class InvitationModelTest(TestCase):
 
         with self.assertRaises(InvalidInvitationToken):
             get_invitation_from_token(old_token)
+
+    def test_rotate_invitation_token_rejects_used_invitation(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.USED,
+            used_at=timezone.now(),
+            used_by=self.user,
+        )
+
+        with self.assertRaises(ValidationError):
+            rotate_invitation_token(invitation)
+
+    def test_rotate_invitation_token_rejects_cancelled_invitation(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.CANCELLED,
+            cancelled_at=timezone.now(),
+        )
+
+        with self.assertRaises(ValidationError):
+            rotate_invitation_token(invitation)
 
     def test_generate_qr_code_png_returns_png_bytes(self):
         invitation = Invitation.objects.create(
@@ -433,3 +457,40 @@ class InvitationModelTest(TestCase):
 
         invitation.refresh_from_db()
         self.assertEqual(invitation.token_version, 2)
+
+    def test_regenerate_invitation_command_rejects_used_invitation(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.USED,
+            used_at=timezone.now(),
+            used_by=self.user,
+        )
+
+        with self.assertRaises(CommandError) as exc:
+            call_command(
+                "regenerate_invitation",
+                code=invitation.code,
+            )
+
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.token_version, 1)
+        self.assertIn("ya fue utilizada", str(exc.exception))
+
+    def test_regenerate_invitation_command_rejects_cancelled_invitation(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.CANCELLED,
+            cancelled_at=timezone.now(),
+        )
+
+        with self.assertRaises(CommandError) as exc:
+            call_command(
+                "regenerate_invitation",
+                code=invitation.code,
+            )
+
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.token_version, 1)
+        self.assertIn("anulada", str(exc.exception))

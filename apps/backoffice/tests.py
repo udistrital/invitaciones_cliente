@@ -110,6 +110,63 @@ class BackofficeViewTest(TestCase):
         self.assertEqual(invitation.status, Invitation.Status.CANCELLED)
         self.assertContains(response, "fue anulada")
 
+    def test_staff_can_regenerate_unused_invitation(self):
+        self.client.force_login(self.staff_user)
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+
+        response = self.client.post(
+            reverse("backoffice:invitation-regenerate", kwargs={"pk": invitation.pk}),
+            follow=True,
+        )
+
+        invitation.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(invitation.token_version, 2)
+        self.assertContains(response, "fue regenerada")
+        self.assertContains(response, "Version de token")
+
+    def test_staff_cannot_regenerate_used_invitation(self):
+        self.client.force_login(self.staff_user)
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.USED,
+            used_at=timezone.now(),
+            used_by=self.staff_user,
+        )
+
+        response = self.client.post(
+            reverse("backoffice:invitation-regenerate", kwargs={"pk": invitation.pk}),
+            follow=True,
+        )
+
+        invitation.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(invitation.token_version, 1)
+        self.assertContains(response, "ya fue utilizada")
+
+    def test_staff_cannot_regenerate_cancelled_invitation(self):
+        self.client.force_login(self.staff_user)
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+            status=Invitation.Status.CANCELLED,
+            cancelled_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse("backoffice:invitation-regenerate", kwargs={"pk": invitation.pk}),
+            follow=True,
+        )
+
+        invitation.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(invitation.token_version, 1)
+        self.assertContains(response, "anulada")
+
     def test_staff_cannot_cancel_used_invitation(self):
         self.client.force_login(self.staff_user)
         invitation = Invitation.objects.create(
