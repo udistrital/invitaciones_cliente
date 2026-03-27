@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -262,7 +262,7 @@ class InvitationModelTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("no-store", response["Cache-Control"])
-        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
         self.assertEqual(response.json()["invitation"]["code"], invitation.code)
 
     def test_validation_page_renders_valid_state_for_mobile_flow(self):
@@ -331,7 +331,7 @@ class InvitationModelTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertIn("no-store", response["Cache-Control"])
-        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
         self.assertTrue(response.content.startswith(b"%PDF"))
 
     def test_qr_preview_endpoint_requires_staff_session(self):
@@ -361,8 +361,52 @@ class InvitationModelTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/png")
         self.assertIn("no-store", response["Cache-Control"])
-        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
         self.assertTrue(response.content.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_validation_page_uses_same_origin_referrer_policy_for_post_flow(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+
+        response = self.client.get(reverse("invitation-validate"), {"token": token})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
+
+    def test_mark_used_endpoint_accepts_secure_csrf_protected_post(self):
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        validate_url = reverse("invitation-validate")
+
+        validate_response = csrf_client.get(
+            validate_url,
+            {"token": token},
+            secure=True,
+        )
+        csrf_token = validate_response.cookies["csrftoken"].value
+
+        response = csrf_client.post(
+            reverse("invitation-mark-used"),
+            {
+                "token": token,
+                "access_point": self.access_point.pk,
+                "csrfmiddlewaretoken": csrf_token,
+            },
+            secure=True,
+            HTTP_REFERER=f"https://testserver{validate_url}?token={token}",
+        )
+
+        invitation.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(invitation.status, Invitation.Status.USED)
 
     def test_validation_get_creates_trace_log(self):
         invitation = Invitation.objects.create(

@@ -44,13 +44,6 @@ STATUS_UI = {
         "tone": "neutral",
     },
 }
-
-
-def apply_invitation_response_security(response):
-    response["Referrer-Policy"] = "no-referrer"
-    return response
-
-
 def wants_json_response(request) -> bool:
     return (
         request.GET.get("format") == "json"
@@ -119,9 +112,7 @@ def render_validation_response(request, outcome, form=None, *, status_code=200):
                     else None
                 ),
             }
-        return apply_invitation_response_security(
-            JsonResponse(payload, status=status_code)
-        )
+        return JsonResponse(payload, status=status_code)
 
     context = build_validation_context(request, outcome, form=form)
     response = render(
@@ -130,7 +121,7 @@ def render_validation_response(request, outcome, form=None, *, status_code=200):
         context,
         status=status_code,
     )
-    return apply_invitation_response_security(response)
+    return response
 
 
 @require_GET
@@ -170,12 +161,10 @@ def invitation_pdf_download_view(request):
     try:
         invitation = get_invitation_from_token(token)
     except InvalidInvitationToken:
-        return apply_invitation_response_security(
-            HttpResponse(
-                "Invitacion no disponible.",
-                status=404,
-                content_type="text/plain",
-            )
+        return HttpResponse(
+            "Invitacion no disponible.",
+            status=404,
+            content_type="text/plain",
         )
     pdf_bytes = generate_invitation_pdf(invitation, request=request)
 
@@ -183,7 +172,7 @@ def invitation_pdf_download_view(request):
     response["Content-Disposition"] = (
         f'inline; filename="{invitation.code.lower()}-invitacion.pdf"'
     )
-    return apply_invitation_response_security(response)
+    return response
 
 
 @require_GET
@@ -195,6 +184,4 @@ def invitation_qr_view(request, public_id):
         public_id=public_id,
     )
     png_bytes = generate_qr_code_png(invitation, request=request)
-    return apply_invitation_response_security(
-        HttpResponse(png_bytes, content_type="image/png")
-    )
+    return HttpResponse(png_bytes, content_type="image/png")
