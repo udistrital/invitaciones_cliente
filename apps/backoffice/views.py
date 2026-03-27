@@ -4,16 +4,26 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Q
-from django.http import HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
-from django.views.decorators.http import require_POST
-from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
+from django.views.decorators.http import require_GET, require_POST
+from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView, UpdateView
 
-from apps.backoffice.forms import CeremonyForm, GraduateForm
+from apps.backoffice.forms import (
+    CeremonyForm,
+    CeremonyUpdateForm,
+    GraduateForm,
+    GraduateImportUploadForm,
+)
 from apps.ceremonies.models import Ceremony
-from apps.graduates.models import Graduate
+from apps.graduates.imports import (
+    build_graduate_template_workbook,
+    confirm_graduate_import_batch,
+    create_graduate_import_batch,
+)
+from apps.graduates.models import Graduate, GraduateImportBatch
 from apps.invitations.models import Invitation
 from apps.invitations.services import (
     build_download_url,
@@ -23,6 +33,17 @@ from apps.invitations.services import (
     issue_invitations_for_graduate,
     rotate_invitation_token,
 )
+
+
+def build_import_summary(batch):
+    return (
+        f"Filas leidas: {batch.rows_total}. "
+        f"Validas: {batch.rows_valid}. "
+        f"Con error: {batch.rows_error}. "
+        f"Graduandos creados: {batch.graduates_created}. "
+        f"Graduandos actualizados: {batch.graduates_updated}. "
+        f"Invitaciones creadas: {batch.invitations_created}."
+    )
 
 
 @method_decorator(staff_member_required, name="dispatch")
@@ -35,7 +56,10 @@ class BackofficeDashboardView(TemplateView):
             ("Ceremonias", Ceremony.objects.count()),
             ("Graduandos", Graduate.objects.count()),
             ("Invitaciones", Invitation.objects.count()),
-            ("Invitaciones usadas", Invitation.objects.filter(status=Invitation.Status.USED).count()),
+            (
+                "Invitaciones usadas",
+                Invitation.objects.filter(status=Invitation.Status.USED).count(),
+            ),
         ]
         context["recent_ceremonies"] = Ceremony.objects.order_by("-scheduled_at")[:5]
         context["recent_invitations"] = Invitation.objects.select_related(
@@ -55,6 +79,7 @@ class CeremonyListView(ListView):
         queryset = Ceremony.objects.annotate(
             graduates_total=Count("graduates", distinct=True),
             invitations_total=Count("graduates__invitations", distinct=True),
+            import_batches_total=Count("graduate_import_batches", distinct=True),
         ).order_by("-scheduled_at")
         query = self.request.GET.get("q", "").strip()
         if query:
@@ -80,14 +105,44 @@ class CeremonyCreateView(CreateView):
     success_url = reverse_lazy("backoffice:ceremony-list")
 
     def form_valid(self, form):
-        response = super().form_valid(form)
-        messages.success(self.request, "Ceremonia creada correctamente.")
-        return response
+        graduates_file = form.cleaned_data.get("graduates_file")
+        self.object = form.save()
+
+        if not graduates_file:
+            messages.success(self.request, "Ceremonia creada correctamente.")
+            return HttpResponseRedirect(self.get_success_url())
+
+        batch = create_graduate_import_batch(
+            ceremony=self.object,
+            uploaded_file=graduates_file,
+            uploaded_by=self.request.user,
+        )
+
+        if batch.preview_payload.get("can_confirm"):
+            messages.success(
+                self.request,
+                "Ceremonia creada y archivo validado. Revisa el preview antes de confirmar.",
+            )
+        else:
+            messages.warning(
+                self.request,
+                "Ceremonia creada, pero el archivo tiene observaciones y no se puede confirmar aun.",
+            )
+
+        return HttpResponseRedirect(
+            reverse(
+                "backoffice:ceremony-graduate-import-preview",
+                kwargs={"pk": self.object.pk, "batch_id": batch.pk},
+            )
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["page_title"] = "Nueva ceremonia"
-        context["page_description"] = "Registra los datos base de una ceremonia de grado."
+        context["page_description"] = (
+            "Registra los datos base de una ceremonia y, si quieres, adjunta de una vez "
+            "el Excel de graduandos para validarlo."
+        )
         context["cancel_url"] = reverse("backoffice:ceremony-list")
         return context
 
@@ -95,7 +150,7 @@ class CeremonyCreateView(CreateView):
 @method_decorator(staff_member_required, name="dispatch")
 class CeremonyUpdateView(UpdateView):
     model = Ceremony
-    form_class = CeremonyForm
+    form_class = CeremonyUpdateForm
     template_name = "backoffice/form.html"
     success_url = reverse_lazy("backoffice:ceremony-list")
 
@@ -109,6 +164,98 @@ class CeremonyUpdateView(UpdateView):
         context["page_title"] = "Editar ceremonia"
         context["page_description"] = "Actualiza fecha, lugar y estado de la ceremonia."
         context["cancel_url"] = reverse("backoffice:ceremony-list")
+        return context
+
+
+@method_decorator(staff_member_required, name="dispatch")
+class CeremonyGraduateImportUploadView(FormView):
+    template_name = "backoffice/graduate_import_upload.html"
+    form_class = GraduateImportUploadForm
+
+    def dispatch(self, request, *args, **kwargs):
+        self.ceremony = get_object_or_404(Ceremony, pk=kwargs["pk"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        batch = create_graduate_import_batch(
+            ceremony=self.ceremony,
+            uploaded_file=form.cleaned_data["graduates_file"],
+            uploaded_by=self.request.user,
+        )
+
+        if batch.preview_payload.get("can_confirm"):
+            messages.success(
+                self.request,
+                "Archivo validado. Revisa el preview y confirma la importacion.",
+            )
+        else:
+            messages.warning(
+                self.request,
+                "El archivo fue validado con observaciones. Corrigelo antes de confirmar.",
+            )
+
+        return HttpResponseRedirect(
+            reverse(
+                "backoffice:ceremony-graduate-import-preview",
+                kwargs={"pk": self.ceremony.pk, "batch_id": batch.pk},
+            )
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["page_title"] = "Cargar graduandos"
+        context["page_description"] = (
+            "Sube un archivo Excel para validar graduandos sobre una ceremonia ya creada."
+        )
+        context["ceremony"] = self.ceremony
+        context["cancel_url"] = reverse("backoffice:ceremony-list")
+        context["template_url"] = reverse(
+            "backoffice:ceremony-graduate-template-download"
+        )
+        return context
+
+
+@method_decorator(staff_member_required, name="dispatch")
+class GraduateImportPreviewView(TemplateView):
+    template_name = "backoffice/graduate_import_preview.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.ceremony = get_object_or_404(Ceremony, pk=kwargs["pk"])
+        self.batch = get_object_or_404(
+            GraduateImportBatch.objects.select_related(
+                "ceremony",
+                "uploaded_by",
+                "confirmed_by",
+            ),
+            pk=kwargs["batch_id"],
+            ceremony=self.ceremony,
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        preview = self.batch.preview_payload or {}
+        context["page_title"] = "Preview de importacion"
+        context["page_description"] = (
+            "Revisa las filas detectadas, valida las observaciones y confirma solo si el lote esta limpio."
+        )
+        context["ceremony"] = self.ceremony
+        context["batch"] = self.batch
+        context["preview"] = preview
+        context["rows"] = preview.get("rows", [])
+        context["file_errors"] = preview.get("file_errors", [])
+        context["can_confirm"] = (
+            self.batch.status == GraduateImportBatch.Status.VALIDATED
+            and preview.get("can_confirm", False)
+        )
+        context["cancel_url"] = reverse("backoffice:ceremony-list")
+        context["upload_url"] = reverse(
+            "backoffice:ceremony-graduate-import-upload",
+            kwargs={"pk": self.ceremony.pk},
+        )
+        context["graduates_url"] = (
+            f"{reverse('backoffice:graduate-list')}?{urlencode({'ceremony': self.ceremony.pk})}"
+        )
         return context
 
 
@@ -157,6 +304,7 @@ class GraduateCreateView(CreateView):
         ceremony_id = self.request.GET.get("ceremony")
         if ceremony_id:
             initial["ceremony"] = ceremony_id
+        initial.setdefault("invitation_quota", 3)
         return initial
 
     def get_success_url(self):
@@ -239,8 +387,14 @@ class InvitationListView(ListView):
         context["status_choices"] = Invitation.Status.choices
 
         for invitation in context["invitations"]:
-            invitation.validation_url = build_validation_url(invitation, request=self.request)
-            invitation.download_url = build_download_url(invitation, request=self.request)
+            invitation.validation_url = build_validation_url(
+                invitation,
+                request=self.request,
+            )
+            invitation.download_url = build_download_url(
+                invitation,
+                request=self.request,
+            )
 
         return context
 
@@ -262,13 +416,69 @@ class InvitationDetailView(DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         invitation = self.object
-        context["validation_url"] = build_validation_url(invitation, request=self.request)
-        context["download_url"] = build_download_url(invitation, request=self.request)
+        context["validation_url"] = build_validation_url(
+            invitation,
+            request=self.request,
+        )
+        context["download_url"] = build_download_url(
+            invitation,
+            request=self.request,
+        )
         context["validation_logs"] = invitation.validation_logs.select_related(
             "validator",
             "access_point",
         ).order_by("-validated_at")[:20]
         return context
+
+
+@staff_member_required
+@require_GET
+def graduate_template_download_view(request):
+    workbook_bytes = build_graduate_template_workbook()
+    response = HttpResponse(
+        workbook_bytes,
+        content_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+    )
+    response["Content-Disposition"] = (
+        'attachment; filename="plantilla-graduandos.xlsx"'
+    )
+    return response
+
+
+@staff_member_required
+@require_POST
+def confirm_graduate_import_view(request, pk, batch_id):
+    ceremony = get_object_or_404(Ceremony, pk=pk)
+    batch = get_object_or_404(
+        GraduateImportBatch.objects.select_related("ceremony"),
+        pk=batch_id,
+        ceremony=ceremony,
+    )
+
+    try:
+        if batch.status != GraduateImportBatch.Status.VALIDATED:
+            raise ValidationError("Este lote ya no esta disponible para confirmar.")
+        confirm_graduate_import_batch(batch=batch, confirmed_by=request.user)
+        messages.success(
+            request,
+            "Importacion confirmada correctamente. " + build_import_summary(batch),
+        )
+    except ValidationError as exc:
+        messages.error(request, getattr(exc, "message", str(exc)))
+    except Exception:
+        messages.error(
+            request,
+            "Ocurrio un error inesperado al confirmar la importacion.",
+        )
+
+    return HttpResponseRedirect(
+        reverse(
+            "backoffice:ceremony-graduate-import-preview",
+            kwargs={"pk": ceremony.pk, "batch_id": batch.pk},
+        )
+    )
 
 
 @staff_member_required

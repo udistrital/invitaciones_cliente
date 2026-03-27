@@ -1,0 +1,131 @@
+{% extends "backoffice/base.html" %}
+
+{% block section_title %}{{ page_title }}{% endblock %}
+{% block section_actions %}
+<a class="link-button button-secondary compact" href="{{ upload_url }}">Subir otro archivo</a>
+<a class="link-button button-secondary compact" href="{{ graduates_url }}">Ver graduandos</a>
+{% endblock %}
+
+{% block backoffice_content %}
+<section class="panel">
+    <p><strong>Ceremonia:</strong> {{ ceremony.name }} ({{ ceremony.code }})</p>
+    <p><strong>Archivo:</strong> {{ batch.source_filename }}</p>
+    <p><strong>Estado del lote:</strong> {{ batch.get_status_display }}</p>
+    {% if preview.sheet_name %}
+    <p><strong>Hoja procesada:</strong> {{ preview.sheet_name }}</p>
+    {% endif %}
+    {% if batch.confirmed_at %}
+    <p><strong>Confirmado:</strong> {{ batch.confirmed_at|date:"d/m/Y h:i A" }}</p>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="grid">
+        <article class="detail">
+            <span class="detail-label">Filas leidas</span>
+            <span class="detail-value">{{ preview.rows_total }}</span>
+        </article>
+        <article class="detail">
+            <span class="detail-label">Filas validas</span>
+            <span class="detail-value">{{ preview.rows_valid }}</span>
+        </article>
+        <article class="detail">
+            <span class="detail-label">Filas con error</span>
+            <span class="detail-value">{{ preview.rows_error }}</span>
+        </article>
+        <article class="detail">
+            <span class="detail-label">Graduandos creados</span>
+            <span class="detail-value">{{ batch.graduates_created }}</span>
+        </article>
+        <article class="detail">
+            <span class="detail-label">Graduandos actualizados</span>
+            <span class="detail-value">{{ batch.graduates_updated }}</span>
+        </article>
+        <article class="detail">
+            <span class="detail-label">Invitaciones creadas</span>
+            <span class="detail-value">{{ batch.invitations_created }}</span>
+        </article>
+    </div>
+</section>
+
+{% if file_errors %}
+<section class="panel">
+    <h3>Errores del archivo</h3>
+    <ul>
+        {% for error in file_errors %}
+        <li>{{ error }}</li>
+        {% endfor %}
+    </ul>
+    </section>
+{% endif %}
+
+{% if batch.failure_message %}
+<section class="panel">
+    <h3>Ultimo fallo registrado</h3>
+    <p>{{ batch.failure_message }}</p>
+</section>
+{% endif %}
+
+<section class="panel">
+    <div class="table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>Fila</th>
+                    <th>Codigo</th>
+                    <th>Documento</th>
+                    <th>Nombre</th>
+                    <th>Programa</th>
+                    <th>Accion</th>
+                    <th>Invitaciones</th>
+                    <th>Observaciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td data-label="Fila">{{ row.row_number }}</td>
+                    <td data-label="Codigo">{{ row.data.student_code }}</td>
+                    <td data-label="Documento">{{ row.data.document_type }} {{ row.data.document_number }}</td>
+                    <td data-label="Nombre">{{ row.data.full_name }}</td>
+                    <td data-label="Programa">{{ row.data.academic_program }}</td>
+                    <td data-label="Accion">{{ row.action }}</td>
+                    <td data-label="Invitaciones">{{ row.existing_invitation_count }} -> {{ row.existing_invitation_count|add:row.invitations_to_create }}</td>
+                    <td data-label="Observaciones">
+                        {% if row.errors %}
+                        <ul>
+                            {% for error in row.errors %}
+                            <li>{{ error }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% elif row.changed_fields %}
+                        Actualiza: {{ row.changed_fields|join:", " }}
+                        {% else %}
+                        Sin observaciones
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="8">No se detectaron filas de graduandos en el archivo.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    {% if can_confirm %}
+    <p>El lote esta listo para importacion. Al confirmar se crearan o actualizaran graduandos y se completaran invitaciones hasta 3 por graduando.</p>
+    <form method="post" action="{% url 'backoffice:ceremony-graduate-import-confirm' ceremony.pk batch.pk %}">
+        {% csrf_token %}
+        <button class="button-primary" type="submit">Confirmar importacion</button>
+    </form>
+    {% elif batch.status == "confirmed" %}
+    <p>La importacion ya fue confirmada. Puedes revisar el resumen arriba o ir al listado de graduandos.</p>
+    {% else %}
+    <p>El lote no se puede confirmar mientras existan errores en el archivo o en alguna fila.</p>
+    {% endif %}
+</section>
+{% endblock %}

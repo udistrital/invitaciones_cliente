@@ -3,6 +3,7 @@
 {% block section_title %}Ceremonias{% endblock %}
 {% block section_actions %}
 <a class="link-button button-primary compact" href="{% url 'backoffice:ceremony-create' %}">Nueva ceremonia</a>
+<a class="link-button button-secondary compact" href="{% url 'backoffice:ceremony-graduate-template-download' %}">Descargar plantilla</a>
 {% endblock %}
 
 {% block backoffice_content %}
@@ -24,6 +25,7 @@
                     <th>Estado</th>
                     <th>Graduandos</th>
                     <th>Invitaciones</th>
+                    <th>Importaciones</th>
                     <th>Acciones</th>
                 </tr>
             </thead>
@@ -36,10 +38,12 @@
                     <td data-label="Estado">{{ ceremony.get_status_display }}</td>
                     <td data-label="Graduandos">{{ ceremony.graduates_total }}</td>
                     <td data-label="Invitaciones">{{ ceremony.invitations_total }}</td>
+                    <td data-label="Importaciones">{{ ceremony.import_batches_total }}</td>
                     <td data-label="Acciones">
                         <div class="action-group">
                             <a class="link-button button-secondary compact" href="{% url 'backoffice:ceremony-update' ceremony.pk %}">Editar</a>
                             <a class="link-button button-secondary compact" href="{% url 'backoffice:graduate-list' %}?ceremony={{ ceremony.pk }}">Graduandos</a>
+                            <a class="link-button button-secondary compact" href="{% url 'backoffice:ceremony-graduate-import-upload' ceremony.pk %}">Cargar graduandos</a>
                             <form method="post" action="{% url 'backoffice:ceremony-issue-invitations' ceremony.pk %}">
                                 {% csrf_token %}
                                 <input type="hidden" name="next" value="{{ request.get_full_path }}">
@@ -50,7 +54,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="7">No hay ceremonias registradas.</td>
+                    <td colspan="8">No hay ceremonias registradas.</td>
                 </tr>
                 {% endfor %}
             </tbody>

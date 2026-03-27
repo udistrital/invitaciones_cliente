@@ -8,9 +8,29 @@ urlpatterns = [
     path("ceremonias/", views.CeremonyListView.as_view(), name="ceremony-list"),
     path("ceremonias/nueva/", views.CeremonyCreateView.as_view(), name="ceremony-create"),
     path(
+        "ceremonias/plantilla-graduandos/",
+        views.graduate_template_download_view,
+        name="ceremony-graduate-template-download",
+    ),
+    path(
         "ceremonias/<int:pk>/editar/",
         views.CeremonyUpdateView.as_view(),
         name="ceremony-update",
+    ),
+    path(
+        "ceremonias/<int:pk>/graduandos/importar/",
+        views.CeremonyGraduateImportUploadView.as_view(),
+        name="ceremony-graduate-import-upload",
+    ),
+    path(
+        "ceremonias/<int:pk>/graduandos/importaciones/<int:batch_id>/preview/",
+        views.GraduateImportPreviewView.as_view(),
+        name="ceremony-graduate-import-preview",
+    ),
+    path(
+        "ceremonias/<int:pk>/graduandos/importaciones/<int:batch_id>/confirmar/",
+        views.confirm_graduate_import_view,
+        name="ceremony-graduate-import-confirm",
     ),
     path(
         "ceremonias/<int:pk>/generar-invitaciones/",

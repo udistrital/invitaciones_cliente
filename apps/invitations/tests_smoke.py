@@ -39,7 +39,7 @@ class InvitationSmokeTest(TestCase):
             document_number=f"1000{suffix:04d}",
             full_name=f"Graduando {suffix}",
             academic_program="Ingenieria de Sistemas",
-            invitation_quota=2,
+            invitation_quota=3,
         )
 
     def _issue_first_invitation(self, graduate: Optional[Graduate] = None) -> Invitation:
@@ -69,7 +69,7 @@ class InvitationSmokeTest(TestCase):
 
         self.assertIsNotNone(graduate.pk)
         self.assertEqual(graduate.ceremony, ceremony)
-        self.assertEqual(graduate.invitation_quota, 2)
+        self.assertEqual(graduate.invitation_quota, 3)
 
     def test_can_generate_invitation(self):
         graduate = self._create_graduate()

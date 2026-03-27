@@ -1,48 +1,48 @@
 # Sistema de Invitaciones
 
-Aplicacion web en Django para administrar ceremonias de grado, graduandos e invitaciones digitales con validacion por QR, trazabilidad de ingreso y un backoffice operativo para Secretaria Academica.
+Aplicacion web en Django para gestionar ceremonias de grado, graduandos e invitaciones digitales con QR, validacion de ingreso y backoffice operativo para Secretaria Academica.
 
 ## Descripcion del proyecto
 
 El sistema cubre un flujo institucional simple:
 
-- registrar ceremonias y graduandos,
-- definir cupos de invitaciones por graduando,
-- emitir invitaciones con codigo y token firmado,
-- generar QR y PDF bajo demanda,
+- registrar ceremonias,
+- registrar graduandos manualmente o cargarlos masivamente desde Excel,
+- generar invitaciones digitales con token firmado y QR,
 - validar invitaciones en ingreso,
-- registrar trazabilidad de consultas y usos,
-- operar el proceso desde admin Django y backoffice.
+- registrar trazabilidad operativa,
+- operar el proceso desde backoffice y admin Django.
 
-La solucion prioriza mantenibilidad y velocidad de entrega. No almacena archivos binarios en base de datos ni en disco para QR/PDF; ambos se reconstruyen cuando se necesitan.
+La solucion prioriza mantenibilidad y velocidad de entrega. Los QR y PDFs se generan bajo demanda en memoria; no se almacenan binarios en base de datos ni en disco.
 
 ## Arquitectura
 
 La aplicacion sigue un monolito modular sobre Django 4.2:
 
-- `apps/core`: utilidades compartidas y health check.
+- `apps/core`: utilidades compartidas, modelo base y comandos de apoyo.
 - `apps/ceremonies`: dominio de ceremonias.
-- `apps/graduates`: dominio de graduandos.
+- `apps/graduates`: dominio de graduandos e importacion masiva desde Excel.
 - `apps/invitations`: emision, token firmado, QR, PDF, validacion y trazabilidad.
-- `apps/backoffice`: interfaz operativa para personal staff.
+- `apps/backoffice`: interfaz operativa protegida para personal staff.
 - `config/`: configuracion Django, URLs y entrypoints ASGI/WSGI.
 - `docs/adr/`: decisiones de arquitectura.
 
 Decisiones clave:
 
 - PostgreSQL como base de datos principal.
-- Tokens firmados con `public_id + token_version`.
-- Regeneracion por rotacion de `token_version`.
+- `openpyxl` para leer y generar archivos `.xlsx`.
+- importacion en dos pasos: `validar -> confirmar`.
+- bitacora persistida de cada lote de importacion.
+- tokens firmados con `public_id + token_version`.
 - QR y PDF generados en memoria.
-- Backoffice simple sobre vistas Django protegidas por `is_staff`.
 
 ## Requisitos
 
 - Python 3.9 o superior
 - PostgreSQL disponible
-- `uv` recomendado para dependencias y ejecucion local
+- `uv` recomendado para instalar dependencias y ejecutar localmente
 
-Tambien puedes usar el entorno virtual incluido localmente si ya existe `.venv`.
+Tambien puedes usar el entorno virtual local si ya existe `.venv`.
 
 ## Instalacion
 
@@ -85,7 +85,7 @@ Variables obligatorias:
 - `DB_PORT`
 - `APP_BASE_URL`
 
-Variables adicionales del proyecto:
+Variables adicionales:
 
 - `USE_X_FORWARDED_FOR`
 
@@ -123,7 +123,7 @@ Aplicar migraciones:
 uv run python manage.py migrate
 ```
 
-Verificar que no existan cambios de modelo pendientes:
+Verificar que no existan cambios pendientes:
 
 ```bash
 uv run python manage.py makemigrations --check
@@ -142,6 +142,7 @@ Puntos utiles:
 - `GET /health/`
 - `GET /admin/`
 - `GET /gestion/`
+- `GET /gestion/ceremonias/plantilla-graduandos/`
 - `GET /invitaciones/validar/?token=...`
 
 ## Pruebas
@@ -162,10 +163,10 @@ Suite smoke minima de invitaciones:
 uv run python manage.py test apps.invitations.tests_smoke
 ```
 
-Suite completa:
+Pruebas de importacion y backoffice:
 
 ```bash
-uv run python manage.py test
+uv run python manage.py test apps.graduates.tests_imports apps.backoffice.tests
 ```
 
 ## Flujo funcional
@@ -173,11 +174,50 @@ uv run python manage.py test
 ### 1. Configuracion operativa
 
 - Crear ceremonia.
-- Crear graduandos.
-- Definir `invitation_quota`.
+- Crear graduandos manualmente o cargarlos desde Excel.
+- La regla actual del flujo masivo es 3 invitaciones totales por graduando.
 - Crear puntos de acceso si se validara en sitio.
 
-### 2. Emision de invitaciones
+### 2. Importacion masiva de graduandos
+
+La carga masiva funciona en dos pasos: `validar -> confirmar`.
+
+Formas de entrada:
+
+- crear una ceremonia sin archivo,
+- crear una ceremonia con archivo `.xlsx` opcional,
+- cargar el archivo despues sobre una ceremonia ya creada.
+
+Plantilla oficial:
+
+- `GET /gestion/ceremonias/plantilla-graduandos/`
+
+Columnas esperadas:
+
+- `codigo_estudiantil`
+- `tipo_documento`
+- `numero_documento`
+- `nombre_completo`
+- `correo_institucional`
+- `programa_academico`
+
+Reglas del flujo:
+
+- el preview no guarda graduandos ni crea invitaciones,
+- la confirmacion solo se habilita si no hay errores,
+- el lote es todo o nada,
+- si el graduando no existe, se crea con `invitation_quota = 3`,
+- si ya existe, se actualiza y se completan invitaciones faltantes hasta 3,
+- si ya tiene 3 invitaciones, no se crean duplicados,
+- si ya tiene mas de 3 invitaciones, la fila queda bloqueada para revision manual.
+
+Rutas del flujo:
+
+- `GET/POST /gestion/ceremonias/<pk>/graduandos/importar/`
+- `GET /gestion/ceremonias/<pk>/graduandos/importaciones/<batch_id>/preview/`
+- `POST /gestion/ceremonias/<pk>/graduandos/importaciones/<batch_id>/confirmar/`
+
+### 3. Emision de invitaciones
 
 Por backoffice:
 
@@ -191,7 +231,7 @@ uv run python manage.py issue_invitations --graduate-id 1
 uv run python manage.py issue_invitations --ceremony-code GRADOS-2026-01
 ```
 
-### 3. Activos generados
+### 4. Activos generados
 
 - URL de validacion con token firmado
 - PDF de invitacion
@@ -204,14 +244,14 @@ Rutas relevantes:
 - `GET /invitaciones/descargar/?token=...`
 - `GET /invitaciones/qr/<public_id>/` solo para personal `is_staff`
 
-### 4. Validacion de ingreso
+### 5. Validacion de ingreso
 
 - El QR lleva a la pantalla de validacion.
 - El sistema muestra si la invitacion esta valida, usada, anulada o no existe.
 - Personal `is_staff` puede marcarla como usada.
 - Cada consulta genera trazabilidad operativa.
 
-### 5. Regeneracion y anulacion
+### 6. Regeneracion y anulacion
 
 Regeneracion:
 
@@ -248,7 +288,7 @@ El comando crea o reutiliza:
 - una ceremonia demo,
 - dos puntos de acceso,
 - dos graduandos,
-- sus invitaciones iniciales.
+- las invitaciones iniciales segun el cupo configurado en cada graduando demo.
 
 Esto deja el proyecto listo para revisar el flujo funcional desde `/gestion/` y `/admin/`.
 
@@ -256,6 +296,8 @@ Esto deja el proyecto listo para revisar el flujo funcional desde `/gestion/` y 
 
 - El QR y los enlaces usan token firmado; modificar el token invalida la firma.
 - Los QR preview directos requieren sesion staff.
+- La carga masiva guarda solo metadatos y snapshot de validacion; no persiste el Excel original.
+- La confirmacion del lote es transaccional y no permite importacion parcial en esta fase.
 - Las respuestas asociadas a token usan politicas para reducir cacheo y fuga por `Referer`.
 - La IP real no usa `X-Forwarded-For` salvo configuracion explicita.
 - QR y PDF se generan en memoria; no hay archivos temporales persistentes del flujo.

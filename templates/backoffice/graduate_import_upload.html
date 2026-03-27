@@ -1,10 +1,19 @@
 {% extends "backoffice/base.html" %}
 
 {% block section_title %}{{ page_title }}{% endblock %}
+{% block section_actions %}
+<a class="link-button button-secondary compact" href="{{ template_url }}">Descargar plantilla</a>
+{% endblock %}
 
 {% block backoffice_content %}
 <section class="panel">
-    <form method="post" class="admin-form" {% if form.is_multipart %}enctype="multipart/form-data"{% endif %}>
+    <p><strong>Ceremonia:</strong> {{ ceremony.name }} ({{ ceremony.code }})</p>
+    <p><strong>Fecha:</strong> {{ ceremony.scheduled_at|date:"d/m/Y h:i A" }}</p>
+    <p><strong>Lugar:</strong> {{ ceremony.venue }}</p>
+</section>
+
+<section class="panel">
+    <form method="post" class="admin-form" enctype="multipart/form-data">
         {% csrf_token %}
         {% for field in form %}
         <div class="field">
@@ -17,7 +26,7 @@
         </div>
         {% endfor %}
         <div class="form-actions">
-            <button class="button-primary" type="submit">Guardar</button>
+            <button class="button-primary" type="submit">Validar archivo</button>
             <a class="link-button button-secondary" href="{{ cancel_url }}">Cancelar</a>
         </div>
     </form>

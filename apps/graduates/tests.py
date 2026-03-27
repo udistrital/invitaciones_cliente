@@ -22,7 +22,7 @@ class GraduateModelTest(TestCase):
             document_number="12345678",
             full_name="Laura Perez",
             academic_program="Ingenieria de Sistemas",
-            invitation_quota=2,
+            invitation_quota=3,
         )
 
         with self.assertRaises(IntegrityError):
@@ -33,6 +33,27 @@ class GraduateModelTest(TestCase):
                     full_name="Laura Perez Duplicada",
                     academic_program="Ingenieria de Sistemas",
                     invitation_quota=1,
+                )
+
+    def test_duplicate_student_code_in_same_ceremony_fails(self):
+        Graduate.objects.create(
+            ceremony=self.ceremony,
+            student_code="20260001",
+            document_number="12345678",
+            full_name="Laura Perez",
+            academic_program="Ingenieria de Sistemas",
+            invitation_quota=3,
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Graduate.objects.create(
+                    ceremony=self.ceremony,
+                    student_code="20260001",
+                    document_number="87654321",
+                    full_name="Carlos Ruiz",
+                    academic_program="Ingenieria Industrial",
+                    invitation_quota=3,
                 )
 
     def test_same_document_number_is_allowed_in_different_ceremonies(self):
@@ -48,7 +69,7 @@ class GraduateModelTest(TestCase):
             document_number="12345678",
             full_name="Laura Perez",
             academic_program="Ingenieria de Sistemas",
-            invitation_quota=2,
+            invitation_quota=3,
         )
         graduate = Graduate.objects.create(
             ceremony=other_ceremony,
@@ -60,11 +81,21 @@ class GraduateModelTest(TestCase):
 
         self.assertEqual(graduate.ceremony, other_ceremony)
 
+    def test_default_invitation_quota_is_three(self):
+        graduate = Graduate.objects.create(
+            ceremony=self.ceremony,
+            document_number="10000001",
+            full_name="Maria Fernanda",
+            academic_program="Matematicas",
+        )
+
+        self.assertEqual(graduate.invitation_quota, 3)
+
     def test_negative_invitation_quota_is_rejected(self):
         graduate = Graduate(
             ceremony=self.ceremony,
             document_number="99999999",
-            full_name="Inválido",
+            full_name="Invalido",
             academic_program="Programa de prueba",
             invitation_quota=-1,
         )
