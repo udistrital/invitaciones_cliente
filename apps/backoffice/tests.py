@@ -66,7 +66,7 @@ class BackofficeViewTest(TestCase):
         response = self.client.get(reverse("backoffice:dashboard"))
 
         self.assertEqual(response.status_code, 302)
-        self.assertIn(reverse("admin:login"), response["Location"])
+        self.assertIn(reverse("accounts:wso2-login"), response["Location"])
 
     def test_staff_can_create_ceremony(self):
         self.client.force_login(self.staff_user)

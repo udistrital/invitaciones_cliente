@@ -1,12 +1,13 @@
 from urllib.parse import urlencode
 
-from django.contrib.admin.views.decorators import staff_member_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
+from apps.accounts.decorators import backoffice_staff_required as staff_member_required
+from apps.accounts.services import get_sso_login_url
 from apps.invitations.forms import InvitationUseForm
 from apps.invitations.models import Invitation
 from apps.invitations.services import (
@@ -44,6 +45,8 @@ STATUS_UI = {
         "tone": "neutral",
     },
 }
+
+
 def wants_json_response(request) -> bool:
     return (
         request.GET.get("format") == "json"
@@ -54,7 +57,7 @@ def wants_json_response(request) -> bool:
 
 def build_login_url(request) -> str:
     next_url = f"{reverse('invitation-validate')}?{urlencode({'token': request.GET.get('token', '')})}"
-    return f"{reverse('admin:login')}?{urlencode({'next': next_url})}"
+    return get_sso_login_url(next_url)
 
 
 def build_validation_context(request, outcome, form=None):

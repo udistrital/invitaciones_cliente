@@ -25,6 +25,18 @@ def get_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def get_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            f"The {name} environment variable must be a numeric value."
+        ) from exc
+
+
 def normalize_base_url(value: str) -> str:
     parsed = urlparse(value.strip())
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -54,6 +66,7 @@ if not DEBUG and SECRET_KEY.startswith("change-me"):
     )
 
 INSTALLED_APPS = [
+    "apps.accounts",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -119,10 +132,66 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+AUTHENTICATION_BACKENDS = ["django.contrib.auth.backends.ModelBackend"]
 
 APP_BASE_URL = normalize_base_url(get_env("APP_BASE_URL", "http://127.0.0.1:8000"))
 USE_X_FORWARDED_FOR = get_bool("USE_X_FORWARDED_FOR", False)
 VALIDATION_LOG_DEDUP_WINDOW_SECONDS = 15
+SSO_ENABLED = get_bool("SSO_ENABLED", False)
+OIDC_WSO2_SERVER_METADATA_URL = os.getenv("OIDC_WSO2_SERVER_METADATA_URL", "").strip()
+OIDC_WSO2_CLIENT_ID = os.getenv("OIDC_WSO2_CLIENT_ID", "").strip()
+OIDC_WSO2_CLIENT_SECRET = os.getenv("OIDC_WSO2_CLIENT_SECRET", "").strip()
+OIDC_WSO2_SCOPES = os.getenv("OIDC_WSO2_SCOPES", "openid profile email").strip()
+OIDC_WSO2_ROLE_CLAIM = os.getenv("OIDC_WSO2_ROLE_CLAIM", "roles").strip()
+OIDC_WSO2_STAFF_ROLE = os.getenv("OIDC_WSO2_STAFF_ROLE", "").strip()
+OIDC_WSO2_EMAIL_CLAIM = os.getenv("OIDC_WSO2_EMAIL_CLAIM", "email").strip()
+OIDC_WSO2_USERNAME_CLAIM = os.getenv(
+    "OIDC_WSO2_USERNAME_CLAIM",
+    "preferred_username",
+).strip()
+OIDC_WSO2_NAME_CLAIM = os.getenv("OIDC_WSO2_NAME_CLAIM", "name").strip()
+OIDC_POST_LOGOUT_REDIRECT_URL = os.getenv(
+    "OIDC_POST_LOGOUT_REDIRECT_URL",
+    f"{APP_BASE_URL}/gestion/",
+).strip()
+AUTHENTICATION_MID_ENABLED = get_bool("AUTHENTICATION_MID_ENABLED", False)
+AUTHENTICATION_MID_USER_ROLE_URL = os.getenv(
+    "AUTHENTICATION_MID_USER_ROLE_URL",
+    "https://autenticacion.portaloas.udistrital.edu.co/apioas/"
+    "autenticacion_mid/v1/token/userRol",
+).strip()
+AUTHENTICATION_MID_TIMEOUT_SECONDS = get_float(
+    "AUTHENTICATION_MID_TIMEOUT_SECONDS",
+    10.0,
+)
+AUTHENTICATION_MID_ROLE_FIELD = os.getenv(
+    "AUTHENTICATION_MID_ROLE_FIELD",
+    "role",
+).strip()
+AUTHENTICATION_MID_DOCUMENT_FIELD = os.getenv(
+    "AUTHENTICATION_MID_DOCUMENT_FIELD",
+    "documento",
+).strip()
+AUTHENTICATION_MID_COMPOSED_DOCUMENT_FIELD = os.getenv(
+    "AUTHENTICATION_MID_COMPOSED_DOCUMENT_FIELD",
+    "documento_compuesto",
+).strip()
+AUTHENTICATION_MID_EMAIL_FIELD = os.getenv(
+    "AUTHENTICATION_MID_EMAIL_FIELD",
+    "email",
+).strip()
+AUTHENTICATION_MID_FAMILY_NAME_FIELD = os.getenv(
+    "AUTHENTICATION_MID_FAMILY_NAME_FIELD",
+    "FamilyName",
+).strip()
+AUTHENTICATION_MID_STUDENT_CODE_FIELD = os.getenv(
+    "AUTHENTICATION_MID_STUDENT_CODE_FIELD",
+    "Codigo",
+).strip()
+AUTHENTICATION_MID_STATE_FIELD = os.getenv(
+    "AUTHENTICATION_MID_STATE_FIELD",
+    "Estado",
+).strip()
 
 IS_HTTPS_BASE_URL = APP_BASE_URL.startswith("https://")
 SESSION_COOKIE_HTTPONLY = True

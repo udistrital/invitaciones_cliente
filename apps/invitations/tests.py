@@ -345,7 +345,7 @@ class InvitationModelTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertIn(reverse("admin:login"), response["Location"])
+        self.assertIn(reverse("accounts:wso2-login"), response["Location"])
 
     def test_qr_preview_endpoint_returns_png_for_staff(self):
         invitation = Invitation.objects.create(
@@ -577,7 +577,7 @@ class InvitationModelTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertIn(reverse("admin:login"), response["Location"])
+        self.assertIn(reverse("accounts:wso2-login"), response["Location"])
 
     def test_issue_invitations_command_outputs_links(self):
         output = io.StringIO()

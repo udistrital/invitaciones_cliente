@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Acceso denegado{% endblock %}
+
+{% block content %}
+<section class="shell">
+    <header class="hero">
+        <p class="eyebrow">Autenticacion institucional</p>
+        <h1>Acceso denegado</h1>
+        <p>La cuenta autenticada no tiene el rol requerido para operar el backoffice de ceremonias.</p>
+    </header>
+
+    <div class="content">
+        <span class="badge tone-danger">Sin autorizacion</span>
+        <h2 class="headline">No fue posible conceder acceso operativo</h2>
+        <p class="message">
+            Si crees que deberias tener acceso, solicita validacion del rol institucional en WSO2
+            antes de volver a intentar el ingreso.
+        </p>
+
+        {% if messages %}
+        <div class="panel" style="margin-bottom: 18px;">
+            <h2>Detalle</h2>
+            {% for message in messages %}
+            <p>{{ message }}</p>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="panel">
+            <h2>Siguiente paso</h2>
+            <p>Puedes intentar autenticarte de nuevo o volver al inicio.</p>
+            <div class="actions">
+                <a class="link-button button-primary" href="{{ login_url }}">Intentar de nuevo</a>
+                <a class="link-button button-secondary" href="/">Volver al inicio</a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

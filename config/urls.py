@@ -6,6 +6,7 @@ from apps.core.views import health_check
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("auth/", include(("apps.accounts.urls", "accounts"), namespace="accounts")),
     path("health/", health_check, name="health-check"),
     path("gestion/", include(("apps.backoffice.urls", "backoffice"), namespace="backoffice")),
     path("invitaciones/", include("apps.invitations.urls")),

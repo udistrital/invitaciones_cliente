@@ -23,6 +23,7 @@ La aplicacion sigue un monolito modular sobre Django 4.2:
 - `apps/ceremonies`: dominio de ceremonias.
 - `apps/graduates`: dominio de graduandos e importacion masiva desde Excel.
 - `apps/invitations`: emision, token firmado, QR, PDF, validacion y trazabilidad.
+- `apps/accounts`: autenticacion institucional por OIDC, consulta a `autenticacion_mid` y provision JIT para backoffice.
 - `apps/backoffice`: interfaz operativa protegida para personal staff.
 - `config/`: configuracion Django, URLs y entrypoints ASGI/WSGI.
 - `docs/adr/`: decisiones de arquitectura.
@@ -88,6 +89,27 @@ Variables obligatorias:
 Variables adicionales:
 
 - `USE_X_FORWARDED_FOR`
+- `SSO_ENABLED`
+- `OIDC_WSO2_SERVER_METADATA_URL`
+- `OIDC_WSO2_CLIENT_ID`
+- `OIDC_WSO2_CLIENT_SECRET`
+- `OIDC_WSO2_SCOPES`
+- `OIDC_WSO2_ROLE_CLAIM`
+- `OIDC_WSO2_STAFF_ROLE`
+- `OIDC_WSO2_EMAIL_CLAIM`
+- `OIDC_WSO2_USERNAME_CLAIM`
+- `OIDC_WSO2_NAME_CLAIM`
+- `OIDC_POST_LOGOUT_REDIRECT_URL`
+- `AUTHENTICATION_MID_ENABLED`
+- `AUTHENTICATION_MID_USER_ROLE_URL`
+- `AUTHENTICATION_MID_TIMEOUT_SECONDS`
+- `AUTHENTICATION_MID_ROLE_FIELD`
+- `AUTHENTICATION_MID_DOCUMENT_FIELD`
+- `AUTHENTICATION_MID_COMPOSED_DOCUMENT_FIELD`
+- `AUTHENTICATION_MID_EMAIL_FIELD`
+- `AUTHENTICATION_MID_FAMILY_NAME_FIELD`
+- `AUTHENTICATION_MID_STUDENT_CODE_FIELD`
+- `AUTHENTICATION_MID_STATE_FIELD`
 
 Ejemplo base en `.env.example`:
 
@@ -102,7 +124,42 @@ DB_HOST=127.0.0.1
 DB_PORT=5432
 APP_BASE_URL=http://127.0.0.1:8000
 USE_X_FORWARDED_FOR=False
+SSO_ENABLED=False
+OIDC_WSO2_SERVER_METADATA_URL=
+OIDC_WSO2_CLIENT_ID=
+OIDC_WSO2_CLIENT_SECRET=
+OIDC_WSO2_SCOPES=openid profile email
+OIDC_WSO2_ROLE_CLAIM=roles
+OIDC_WSO2_STAFF_ROLE=
+OIDC_WSO2_EMAIL_CLAIM=email
+OIDC_WSO2_USERNAME_CLAIM=preferred_username
+OIDC_WSO2_NAME_CLAIM=name
+OIDC_POST_LOGOUT_REDIRECT_URL=http://127.0.0.1:8000/gestion/
+AUTHENTICATION_MID_ENABLED=False
+AUTHENTICATION_MID_USER_ROLE_URL=https://autenticacion.portaloas.udistrital.edu.co/apioas/autenticacion_mid/v1/token/userRol
+AUTHENTICATION_MID_TIMEOUT_SECONDS=10
+AUTHENTICATION_MID_ROLE_FIELD=role
+AUTHENTICATION_MID_DOCUMENT_FIELD=documento
+AUTHENTICATION_MID_COMPOSED_DOCUMENT_FIELD=documento_compuesto
+AUTHENTICATION_MID_EMAIL_FIELD=email
+AUTHENTICATION_MID_FAMILY_NAME_FIELD=FamilyName
+AUTHENTICATION_MID_STUDENT_CODE_FIELD=Codigo
+AUTHENTICATION_MID_STATE_FIELD=Estado
 ```
+
+### Autenticacion institucional
+
+El acceso operativo a `/gestion/` puede funcionar de dos formas:
+
+- con `SSO_ENABLED=False`, el flujo `/auth/login/wso2/` redirige al login local de Django admin para desarrollo o contingencia;
+- con `SSO_ENABLED=True`, Django usa OIDC contra WSO2 y solo concede acceso backoffice a usuarios con el rol configurado en `OIDC_WSO2_STAFF_ROLE`.
+- con `AUTHENTICATION_MID_ENABLED=True`, despues de recibir el token OIDC se consulta `autenticacion_mid` con `Authorization: Bearer <access_token>` y cuerpo `{"user": "<correo institucional>"}`; la respuesta institucional se guarda en sesion y sus roles se usan como fuente para la validacion de acceso.
+- los perfiles de estudiante no crean usuario local; el usuario local sombra se mantiene solo para personal operativo que entra a backoffice.
+
+Recomendacion institucional:
+
+- Django solo con WSO2/Outlook OIDC como proveedor de autenticacion.
+- `autenticacion_mid` como fuente de documento, codigo estudiantil, estado y roles institucionales.
 
 ### Cargar `.env` en PowerShell
 
@@ -141,6 +198,8 @@ Puntos utiles:
 
 - `GET /health/`
 - `GET /admin/`
+- `GET /auth/login/wso2/`
+- `GET /auth/access-denied/`
 - `GET /gestion/`
 - `GET /gestion/ceremonias/plantilla-graduandos/`
 - `GET /invitaciones/validar/?token=...`
@@ -169,6 +228,12 @@ Pruebas de importacion y backoffice:
 uv run python manage.py test apps.graduates.tests_imports apps.backoffice.tests
 ```
 
+Pruebas de autenticacion institucional:
+
+```bash
+uv run python manage.py test apps.accounts.tests
+```
+
 ## Flujo funcional
 
 ### 1. Configuracion operativa
@@ -177,6 +242,7 @@ uv run python manage.py test apps.graduates.tests_imports apps.backoffice.tests
 - Crear graduandos manualmente o cargarlos desde Excel.
 - La regla actual del flujo masivo es 3 invitaciones totales por graduando.
 - Crear puntos de acceso si se validara en sitio.
+- Ingresar al backoffice con SSO institucional por WSO2 o, en desarrollo, con el login local de Django si `SSO_ENABLED=False`.
 
 ### 2. Importacion masiva de graduandos
 
@@ -295,6 +361,10 @@ Esto deja el proyecto listo para revisar el flujo funcional desde `/gestion/` y 
 ## Seguridad y operacion
 
 - El QR y los enlaces usan token firmado; modificar el token invalida la firma.
+- El acceso a `/gestion/` usa SSO institucional por OIDC cuando `SSO_ENABLED=True`.
+- El usuario local de backoffice se aprovisiona al primer login usando `issuer + sub` como identidad estable.
+- El rol institucional configurado en WSO2 controla la asignacion de `is_staff` para backoffice.
+- `/admin/` se mantiene como contingencia tecnica local y no como entrada operativa principal.
 - Los QR preview directos requieren sesion staff.
 - La carga masiva guarda solo metadatos y snapshot de validacion; no persiste el Excel original.
 - La confirmacion del lote es transaccional y no permite importacion parcial en esta fase.

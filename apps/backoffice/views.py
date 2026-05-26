@@ -1,7 +1,6 @@
 from urllib.parse import urlencode
 
 from django.contrib import messages
-from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Q
 from django.http import HttpResponse, HttpResponseRedirect
@@ -11,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView, UpdateView
 
+from apps.accounts.decorators import backoffice_staff_required as staff_member_required
 from apps.backoffice.forms import (
     CeremonyForm,
     CeremonyUpdateForm,
