@@ -6,3 +6,5 @@ __pycache__/
 .pytest_cache/
 staticfiles/
 .DS_Store
+*.7z
+docs/PRESENTACION_APROBACION_PILOTO.md
