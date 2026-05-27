@@ -12,7 +12,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, A6
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
@@ -169,7 +169,7 @@ def generate_invitation_pdf(invitation: Invitation, request=None) -> bytes:
         pdf.drawString(72, y, line)
         y -= 20
 
-    pdf.drawImage(qr_image, width - 200, height - 300, width=120, height=120)
+    pdf.drawImage(qr_image, width - 200, height - 300, width=140, height=140)
 
     note = settings.INVITATION_VALIDATION_NOTE
     text_object = pdf.beginText(72, y - 16)

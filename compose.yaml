@@ -1,0 +1,63 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-sistema_invitaciones}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-change-me-with-a-secure-random-value}
+      DEBUG: "True"
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-127.0.0.1,localhost}
+      DB_NAME: ${DB_NAME:-sistema_invitaciones}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_HOST: db
+      DB_PORT: 5432
+      APP_BASE_URL: ${APP_BASE_URL:-http://127.0.0.1:8000}
+      USE_X_FORWARDED_FOR: ${USE_X_FORWARDED_FOR:-False}
+      SSO_ENABLED: ${SSO_ENABLED:-False}
+      OIDC_WSO2_SERVER_METADATA_URL: ${OIDC_WSO2_SERVER_METADATA_URL:-}
+      OIDC_WSO2_CLIENT_ID: ${OIDC_WSO2_CLIENT_ID:-}
+      OIDC_WSO2_CLIENT_SECRET: ${OIDC_WSO2_CLIENT_SECRET:-}
+      OIDC_WSO2_SCOPES: ${OIDC_WSO2_SCOPES:-openid profile email}
+      OIDC_WSO2_ROLE_CLAIM: ${OIDC_WSO2_ROLE_CLAIM:-roles}
+      OIDC_WSO2_STAFF_ROLE: ${OIDC_WSO2_STAFF_ROLE:-}
+      OIDC_WSO2_EMAIL_CLAIM: ${OIDC_WSO2_EMAIL_CLAIM:-email}
+      OIDC_WSO2_USERNAME_CLAIM: ${OIDC_WSO2_USERNAME_CLAIM:-preferred_username}
+      OIDC_WSO2_NAME_CLAIM: ${OIDC_WSO2_NAME_CLAIM:-name}
+      OIDC_POST_LOGOUT_REDIRECT_URL: ${OIDC_POST_LOGOUT_REDIRECT_URL:-http://127.0.0.1:8000/gestion/}
+      AUTHENTICATION_MID_ENABLED: ${AUTHENTICATION_MID_ENABLED:-False}
+      AUTHENTICATION_MID_USER_ROLE_URL: ${AUTHENTICATION_MID_USER_ROLE_URL:-https://autenticacion.portaloas.udistrital.edu.co/apioas/autenticacion_mid/v1/token/userRol}
+      AUTHENTICATION_MID_TIMEOUT_SECONDS: ${AUTHENTICATION_MID_TIMEOUT_SECONDS:-10}
+      AUTHENTICATION_MID_ROLE_FIELD: ${AUTHENTICATION_MID_ROLE_FIELD:-role}
+      AUTHENTICATION_MID_DOCUMENT_FIELD: ${AUTHENTICATION_MID_DOCUMENT_FIELD:-documento}
+      AUTHENTICATION_MID_COMPOSED_DOCUMENT_FIELD: ${AUTHENTICATION_MID_COMPOSED_DOCUMENT_FIELD:-documento_compuesto}
+      AUTHENTICATION_MID_EMAIL_FIELD: ${AUTHENTICATION_MID_EMAIL_FIELD:-email}
+      AUTHENTICATION_MID_FAMILY_NAME_FIELD: ${AUTHENTICATION_MID_FAMILY_NAME_FIELD:-FamilyName}
+      AUTHENTICATION_MID_STUDENT_CODE_FIELD: ${AUTHENTICATION_MID_STUDENT_CODE_FIELD:-Codigo}
+      AUTHENTICATION_MID_STATE_FIELD: ${AUTHENTICATION_MID_STATE_FIELD:-Estado}
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+
+volumes:
+  postgres_data:

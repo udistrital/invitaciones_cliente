@@ -194,6 +194,36 @@ Con variables ya cargadas:
 uv run python manage.py runserver
 ```
 
+## Ejecucion con Docker
+
+El `compose.yaml` incluido esta pensado para desarrollo local y como base tecnica de despliegue. No es una configuracion productiva final: usa `runserver`, no configura HTTPS y requiere endurecer secretos y servidor WSGI para produccion.
+
+Docker Compose usa los valores de `.env` si existe para secretos, base de datos y SSO. Para que el entorno local sea reproducible, `DEBUG=True` y `DB_HOST=db` quedan fijados dentro del compose.
+
+Construir imagen:
+
+```bash
+docker compose build
+```
+
+Levantar Django y PostgreSQL:
+
+```bash
+docker compose up
+```
+
+Crear superusuario:
+
+```bash
+docker compose run --rm web python manage.py createsuperuser
+```
+
+Ejecutar pruebas:
+
+```bash
+docker compose run --rm web python manage.py test
+```
+
 Puntos utiles:
 
 - `GET /health/`

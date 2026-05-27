@@ -1,0 +1,11 @@
+.git/
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+staticfiles/
+.DS_Store
+.env
+*.7z
+docs/PRESENTACION_APROBACION_PILOTO.md
