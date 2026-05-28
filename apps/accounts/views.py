@@ -1,5 +1,3 @@
-from urllib.parse import urlparse
-
 from django.contrib import messages
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -14,20 +12,15 @@ from apps.accounts.services import (
     OIDCAuthenticationError,
     complete_wso2_authentication,
     get_admin_login_url,
+    get_backoffice_required_roles,
     get_safe_next_url,
+    has_student_role,
     logout_user,
     persist_next_url,
     pop_next_url,
     sso_enabled,
     start_wso2_login,
 )
-
-
-def is_backoffice_url(url: str) -> bool:
-    path = urlparse(url).path
-    backoffice_root = reverse("backoffice:dashboard")
-    return path == backoffice_root.rstrip("/") or path.startswith(backoffice_root)
-
 
 @require_GET
 def wso2_login_view(request):
@@ -65,13 +58,17 @@ def wso2_callback_view(request):
         return HttpResponseRedirect(reverse("accounts:access-denied"))
 
     next_url = pop_next_url(request)
-    if result.user is None and is_backoffice_url(next_url):
+    if result.user is None and result.institutional_profile is not None:
+        if has_student_role(result.institutional_profile.roles):
+            return HttpResponseRedirect(reverse("backoffice:invitation-list"))
+
+    if result.user is None:
         detail = (
             "La cuenta autenticada no tiene el rol requerido para acceder al backoffice."
         )
         if settings.DEBUG and result.institutional_profile is not None:
             received_roles = ", ".join(result.institutional_profile.roles) or "ninguno"
-            required_roles = getattr(settings, "OIDC_WSO2_STAFF_ROLE", "")
+            required_roles = ", ".join(get_backoffice_required_roles()) or "ninguno"
             detail = (
                 f"{detail} Roles recibidos desde autenticacion_mid: "
                 f"{received_roles}. Roles requeridos: {required_roles}."

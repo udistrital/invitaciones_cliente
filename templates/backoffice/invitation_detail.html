@@ -41,15 +41,17 @@
         </div>
 
         <div class="action-group action-group-block">
+            {% if can_manage_backoffice %}
             <a class="link-button button-secondary" href="{{ validation_url }}" target="_blank" rel="noopener">Consultar estado</a>
+            {% endif %}
             <a class="link-button button-secondary" href="{{ download_url }}" target="_blank" rel="noopener">Descargar PDF</a>
-            {% if invitation.status != 'cancelled' and invitation.status != 'used' %}
+            {% if can_manage_backoffice and invitation.status != 'cancelled' and invitation.status != 'used' %}
             <form method="post" action="{% url 'backoffice:invitation-regenerate' invitation.pk %}">
                 {% csrf_token %}
                 <button class="button-secondary" type="submit">Regenerar invitacion</button>
             </form>
             {% endif %}
-            {% if invitation.status != 'cancelled' and invitation.status != 'used' %}
+            {% if can_manage_backoffice and invitation.status != 'cancelled' and invitation.status != 'used' %}
             <form method="post" action="{% url 'backoffice:invitation-cancel' invitation.pk %}">
                 {% csrf_token %}
                 <button class="button-danger" type="submit">Anular invitacion</button>
@@ -58,6 +60,7 @@
         </div>
     </section>
 
+    {% if can_manage_backoffice %}
     <section class="panel">
         <h3>Estado de validacion</h3>
         {% if invitation.used_by %}
@@ -85,5 +88,6 @@
             {% endfor %}
         </div>
     </section>
+    {% endif %}
 </div>
 {% endblock %}

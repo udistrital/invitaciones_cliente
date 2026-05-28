@@ -13,9 +13,10 @@ from apps.accounts.services import (
     OIDC_NEXT_SESSION_KEY,
     build_institutional_profile,
     fetch_authentication_mid_profile,
-    get_staff_roles,
+    get_backoffice_required_roles,
     get_institutional_roles_from_payload,
     get_oidc_settings,
+    get_staff_roles,
     get_wso2_oauth_client,
     has_staff_role,
     provision_user_from_claims,
@@ -36,6 +37,8 @@ OIDC_TEST_SETTINGS = {
     "OIDC_WSO2_CLIENT_ID": "client-id",
     "OIDC_WSO2_CLIENT_SECRET": "client-secret",
     "OIDC_WSO2_STAFF_ROLE": "ceremonias.staff",
+    "BACKOFFICE_REQUIRED_ROLES": "",
+    "INSTITUTIONAL_STUDENT_ROLE": "ESTUDIANTE",
     "OIDC_WSO2_ROLE_CLAIM": "roles",
     "OIDC_WSO2_EMAIL_CLAIM": "email",
     "OIDC_WSO2_USERNAME_CLAIM": "preferred_username",
@@ -255,12 +258,100 @@ class AccountsViewTest(TestCase):
                 response = self.client.get(reverse("accounts:wso2-callback"))
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], reverse("accounts:access-denied"))
+        self.assertEqual(response["Location"], reverse("backoffice:invitation-list"))
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(ExternalIdentity.objects.exists())
         profile = self.client.session[AUTHENTICATION_MID_PROFILE_SESSION_KEY]
         self.assertEqual(profile["email"], "estudiante@example.edu.co")
         self.assertEqual(profile["roles"], ["ESTUDIANTE"])
+
+    @override_settings(
+        **{
+            **OIDC_TEST_SETTINGS,
+            **AUTHENTICATION_MID_TEST_SETTINGS,
+            "BACKOFFICE_REQUIRED_ROLES": "CONTRATISTA,ASISTENTE_DEPENDENCIA",
+        }
+    )
+    def test_wso2_callback_keeps_partial_operator_student_limited(self):
+        session = self.client.session
+        session[OIDC_NEXT_SESSION_KEY] = reverse("backoffice:dashboard")
+        session.save()
+
+        mock_client = Mock()
+        mock_client.authorize_access_token.return_value = {
+            "access_token": "outlook-access-token",
+            "id_token": "header.payload",
+        }
+        mock_client.parse_id_token.return_value = {
+            "iss": "https://login.microsoftonline.com/tenant/v2.0",
+            "sub": "student-contractor-subject",
+            "email": "estudiante@example.edu.co",
+            "name": "Estudiante Contratista",
+        }
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "role": ["ESTUDIANTE", "CONTRATISTA"],
+            "email": "estudiante@example.edu.co",
+            "Codigo": "20012020083",
+        }
+
+        with patch(
+            "apps.accounts.services.get_wso2_oauth_client",
+            return_value=mock_client,
+        ):
+            with patch("apps.accounts.services.requests.post", return_value=mock_response):
+                response = self.client.get(reverse("accounts:wso2-callback"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("backoffice:invitation-list"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(ExternalIdentity.objects.exists())
+
+    @override_settings(
+        **{
+            **OIDC_TEST_SETTINGS,
+            **AUTHENTICATION_MID_TEST_SETTINGS,
+            "BACKOFFICE_REQUIRED_ROLES": "CONTRATISTA,ASISTENTE_DEPENDENCIA",
+        }
+    )
+    def test_wso2_callback_allows_student_with_full_operator_role_group(self):
+        session = self.client.session
+        session[OIDC_NEXT_SESSION_KEY] = reverse("backoffice:dashboard")
+        session.save()
+
+        mock_client = Mock()
+        mock_client.authorize_access_token.return_value = {
+            "access_token": "outlook-access-token",
+            "id_token": "header.payload",
+        }
+        mock_client.parse_id_token.return_value = {
+            "iss": "https://login.microsoftonline.com/tenant/v2.0",
+            "sub": "operator-student-subject",
+            "email": "operador@example.edu.co",
+            "name": "Operador Estudiante",
+        }
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "role": ["ESTUDIANTE", "CONTRATISTA", "ASISTENTE_DEPENDENCIA"],
+            "email": "operador@example.edu.co",
+            "Codigo": "20012020083",
+        }
+
+        with patch(
+            "apps.accounts.services.get_wso2_oauth_client",
+            return_value=mock_client,
+        ):
+            with patch("apps.accounts.services.requests.post", return_value=mock_response):
+                response = self.client.get(reverse("accounts:wso2-callback"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("backoffice:dashboard"))
+        self.assertIn("_auth_user_id", self.client.session)
+        self.assertTrue(ExternalIdentity.objects.exists())
 
 
 class AccountsServiceTest(TestCase):
@@ -392,10 +483,14 @@ class AccountsServiceTest(TestCase):
             "OIDC_WSO2_STAFF_ROLE": "ADMIN_ITAN,SECRETARIA",
         }
     )
-    def test_has_staff_role_accepts_multiple_configured_roles(self):
+    def test_has_staff_role_requires_complete_configured_role_group(self):
         self.assertEqual(get_staff_roles(), ["ADMIN_ITAN", "SECRETARIA"])
-        self.assertTrue(has_staff_role(["ESTUDIANTE", "SECRETARIA"]))
-        self.assertFalse(has_staff_role(["ESTUDIANTE"]))
+        self.assertEqual(
+            get_backoffice_required_roles(),
+            ["ADMIN_ITAN", "SECRETARIA"],
+        )
+        self.assertTrue(has_staff_role(["ESTUDIANTE", "ADMIN_ITAN", "SECRETARIA"]))
+        self.assertFalse(has_staff_role(["ESTUDIANTE", "SECRETARIA"]))
 
     @override_settings(**OIDC_TEST_SETTINGS)
     def test_provision_user_from_claims_creates_local_staff_user_and_identity(self):

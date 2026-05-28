@@ -1,13 +1,21 @@
 from urllib.parse import urlencode
 
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.accounts.decorators import backoffice_staff_required as staff_member_required
-from apps.accounts.services import get_sso_login_url
+from apps.accounts.services import (
+    can_view_own_invitations,
+    get_composed_document_from_session,
+    get_document_from_session,
+    get_sso_login_url,
+    get_student_code_from_session,
+    is_backoffice_operator,
+    is_student_limited,
+)
 from apps.invitations.forms import InvitationUseForm
 from apps.invitations.models import Invitation
 from apps.invitations.services import (
@@ -60,6 +68,42 @@ def build_login_url(request) -> str:
     return get_sso_login_url(next_url)
 
 
+def redirect_to_sso_for_current_path(request) -> HttpResponseRedirect:
+    return HttpResponseRedirect(get_sso_login_url(request.get_full_path()))
+
+
+def redirect_denied_invitation_access(request) -> HttpResponseRedirect:
+    if is_student_limited(request):
+        return HttpResponseRedirect(reverse("backoffice:invitation-list"))
+    if request.user.is_authenticated:
+        return HttpResponseRedirect(reverse("accounts:access-denied"))
+    return redirect_to_sso_for_current_path(request)
+
+
+def student_owns_invitation(request, invitation: Invitation) -> bool:
+    student_code = get_student_code_from_session(request)
+    document = get_document_from_session(request)
+    composed_document = get_composed_document_from_session(request)
+    graduate = invitation.graduate
+
+    if student_code and graduate.student_code == student_code:
+        return True
+    if document and graduate.document_number == document:
+        return True
+    if composed_document and document:
+        normalized_graduate_document = "".join(
+            character for character in graduate.document_number if character.isalnum()
+        ).upper()
+        normalized_composed = "".join(
+            character for character in composed_document if character.isalnum()
+        ).upper()
+        return bool(
+            normalized_graduate_document
+            and normalized_graduate_document in normalized_composed
+        )
+    return False
+
+
 def build_validation_context(request, outcome, form=None):
     invitation = outcome.invitation
     details = STATUS_UI[outcome.state]
@@ -88,8 +132,7 @@ def build_validation_context(request, outcome, form=None):
         "can_mark_used": bool(
             invitation
             and outcome.state == "valid"
-            and request.user.is_authenticated
-            and request.user.is_staff
+            and is_backoffice_operator(request)
         ),
         "login_url": build_login_url(request),
         "download_url": build_download_url(invitation, request=request) if invitation else "",
@@ -130,6 +173,9 @@ def render_validation_response(request, outcome, form=None, *, status_code=200):
 @require_GET
 @never_cache
 def invitation_validate_view(request):
+    if not is_backoffice_operator(request):
+        return redirect_denied_invitation_access(request)
+
     token = request.GET.get("token", "")
     outcome = inspect_invitation_token(token, request)
     return render_validation_response(request, outcome)
@@ -160,10 +206,19 @@ def invitation_mark_used_view(request):
 @require_GET
 @never_cache
 def invitation_pdf_download_view(request):
+    if not can_view_own_invitations(request):
+        return redirect_denied_invitation_access(request)
+
     token = request.GET.get("token", "")
     try:
         invitation = get_invitation_from_token(token)
     except InvalidInvitationToken:
+        return HttpResponse(
+            "Invitacion no disponible.",
+            status=404,
+            content_type="text/plain",
+        )
+    if is_student_limited(request) and not student_owns_invitation(request, invitation):
         return HttpResponse(
             "Invitacion no disponible.",
             status=404,

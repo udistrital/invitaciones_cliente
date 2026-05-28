@@ -41,6 +41,8 @@ services:
       OIDC_WSO2_SCOPES: ${OIDC_WSO2_SCOPES:-openid profile email}
       OIDC_WSO2_ROLE_CLAIM: ${OIDC_WSO2_ROLE_CLAIM:-roles}
       OIDC_WSO2_STAFF_ROLE: ${OIDC_WSO2_STAFF_ROLE:-}
+      INSTITUTIONAL_STUDENT_ROLE: ${INSTITUTIONAL_STUDENT_ROLE:-ESTUDIANTE}
+      BACKOFFICE_REQUIRED_ROLES: ${BACKOFFICE_REQUIRED_ROLES:-}
       OIDC_WSO2_EMAIL_CLAIM: ${OIDC_WSO2_EMAIL_CLAIM:-email}
       OIDC_WSO2_USERNAME_CLAIM: ${OIDC_WSO2_USERNAME_CLAIM:-preferred_username}
       OIDC_WSO2_NAME_CLAIM: ${OIDC_WSO2_NAME_CLAIM:-name}
@@ -63,8 +65,7 @@ services:
       db:
         condition: service_healthy
     command: >
-      sh -c "python manage.py migrate &&
-             python manage.py runserver 0.0.0.0:${WEB_PORT:-8000}"
+      sh -c "python manage.py runserver 0.0.0.0:${WEB_PORT:-8000}"
 
 volumes:
   postgres_data:

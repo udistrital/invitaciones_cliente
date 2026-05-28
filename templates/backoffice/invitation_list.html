@@ -52,9 +52,11 @@
                     <td data-label="Acciones">
                         <div class="action-group">
                             <a class="link-button button-secondary compact" href="{% url 'backoffice:invitation-detail' invitation.pk %}">Detalle</a>
+                            {% if can_manage_backoffice %}
                             <a class="link-button button-secondary compact" href="{{ invitation.validation_url }}" target="_blank" rel="noopener">Consultar</a>
+                            {% endif %}
                             <a class="link-button button-secondary compact" href="{{ invitation.download_url }}" target="_blank" rel="noopener">PDF</a>
-                            {% if invitation.status != 'cancelled' and invitation.status != 'used' %}
+                            {% if can_manage_backoffice and invitation.status != 'cancelled' and invitation.status != 'used' %}
                             <form method="post" action="{% url 'backoffice:invitation-cancel' invitation.pk %}">
                                 {% csrf_token %}
                                 <input type="hidden" name="next" value="{{ request.get_full_path }}">

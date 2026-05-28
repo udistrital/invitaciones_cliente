@@ -10,7 +10,17 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView, UpdateView
 
-from apps.accounts.decorators import backoffice_staff_required as staff_member_required
+from apps.accounts.decorators import (
+    backoffice_staff_required as staff_member_required,
+    invitation_viewer_required,
+)
+from apps.accounts.services import (
+    get_composed_document_from_session,
+    get_document_from_session,
+    get_student_code_from_session,
+    is_backoffice_operator,
+    is_student_limited,
+)
 from apps.backoffice.forms import (
     CeremonyForm,
     CeremonyUpdateForm,
@@ -44,6 +54,28 @@ def build_import_summary(batch):
         f"Graduandos actualizados: {batch.graduates_updated}. "
         f"Invitaciones creadas: {batch.invitations_created}."
     )
+
+
+def normalize_identifier(value: str) -> str:
+    return "".join(character for character in str(value or "") if character.isalnum()).upper()
+
+
+def get_student_invitation_owner_filter(request, graduate_prefix="graduate__") -> Q:
+    student_code = get_student_code_from_session(request)
+    document = get_document_from_session(request)
+    composed_document = get_composed_document_from_session(request)
+    query = Q()
+
+    if student_code:
+        query |= Q(**{f"{graduate_prefix}student_code": student_code})
+    if document:
+        query |= Q(**{f"{graduate_prefix}document_number": document})
+    if composed_document:
+        normalized_composed = normalize_identifier(composed_document)
+        if document and normalize_identifier(document) in normalized_composed:
+            query |= Q(**{f"{graduate_prefix}document_number": document})
+
+    return query
 
 
 @method_decorator(staff_member_required, name="dispatch")
@@ -345,7 +377,7 @@ class GraduateUpdateView(UpdateView):
         return context
 
 
-@method_decorator(staff_member_required, name="dispatch")
+@method_decorator(invitation_viewer_required, name="dispatch")
 class InvitationListView(ListView):
     model = Invitation
     template_name = "backoffice/invitation_list.html"
@@ -361,13 +393,24 @@ class InvitationListView(ListView):
             )
             .order_by("-created_at")
         )
+        if is_student_limited(self.request):
+            owner_filter = get_student_invitation_owner_filter(self.request)
+            if not owner_filter:
+                return queryset.none()
+            queryset = queryset.filter(owner_filter)
+
         query = self.request.GET.get("q", "").strip()
         ceremony_id = self.request.GET.get("ceremony", "").strip()
         status = self.request.GET.get("status", "").strip()
 
         if query:
+            code_filter = (
+                Q(graduate__student_code__icontains=query)
+                if is_student_limited(self.request)
+                else Q(code__icontains=query)
+            )
             queryset = queryset.filter(
-                Q(code__icontains=query)
+                code_filter
                 | Q(graduate__full_name__icontains=query)
                 | Q(graduate__document_number__icontains=query)
             )
@@ -383,13 +426,30 @@ class InvitationListView(ListView):
         context["query"] = self.request.GET.get("q", "").strip()
         context["selected_ceremony"] = self.request.GET.get("ceremony", "").strip()
         context["selected_status"] = self.request.GET.get("status", "").strip()
-        context["ceremonies"] = Ceremony.objects.order_by("-scheduled_at")
+        context["can_manage_backoffice"] = is_backoffice_operator(self.request)
+        context["is_student_invitation_view"] = is_student_limited(self.request)
+        if context["is_student_invitation_view"]:
+            owner_filter = get_student_invitation_owner_filter(
+                self.request,
+                graduate_prefix="graduates__",
+            )
+            context["ceremonies"] = (
+                Ceremony.objects.filter(graduates__invitations__isnull=False)
+                .filter(owner_filter)
+                .distinct()
+                .order_by("-scheduled_at")
+                if owner_filter
+                else Ceremony.objects.none()
+            )
+        else:
+            context["ceremonies"] = Ceremony.objects.order_by("-scheduled_at")
         context["status_choices"] = Invitation.Status.choices
 
         for invitation in context["invitations"]:
-            invitation.validation_url = build_validation_url(
-                invitation,
-                request=self.request,
+            invitation.validation_url = (
+                build_validation_url(invitation, request=self.request)
+                if context["can_manage_backoffice"]
+                else ""
             )
             invitation.download_url = build_download_url(
                 invitation,
@@ -399,35 +459,48 @@ class InvitationListView(ListView):
         return context
 
 
-@method_decorator(staff_member_required, name="dispatch")
+@method_decorator(invitation_viewer_required, name="dispatch")
 class InvitationDetailView(DetailView):
     model = Invitation
     template_name = "backoffice/invitation_detail.html"
     context_object_name = "invitation"
 
     def get_queryset(self):
-        return Invitation.objects.select_related(
+        queryset = Invitation.objects.select_related(
             "graduate",
             "graduate__ceremony",
             "used_by",
             "used_access_point",
         )
+        if is_student_limited(self.request):
+            owner_filter = get_student_invitation_owner_filter(self.request)
+            if not owner_filter:
+                return queryset.none()
+            queryset = queryset.filter(owner_filter)
+        return queryset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         invitation = self.object
-        context["validation_url"] = build_validation_url(
-            invitation,
-            request=self.request,
+        context["can_manage_backoffice"] = is_backoffice_operator(self.request)
+        context["is_student_invitation_view"] = is_student_limited(self.request)
+        context["validation_url"] = (
+            build_validation_url(invitation, request=self.request)
+            if context["can_manage_backoffice"]
+            else ""
         )
         context["download_url"] = build_download_url(
             invitation,
             request=self.request,
         )
-        context["validation_logs"] = invitation.validation_logs.select_related(
-            "validator",
-            "access_point",
-        ).order_by("-validated_at")[:20]
+        context["validation_logs"] = (
+            invitation.validation_logs.select_related(
+                "validator",
+                "access_point",
+            ).order_by("-validated_at")[:20]
+            if context["can_manage_backoffice"]
+            else []
+        )
         return context
 
 

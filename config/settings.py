@@ -151,6 +151,13 @@ OIDC_WSO2_CLIENT_SECRET = os.getenv("OIDC_WSO2_CLIENT_SECRET", "").strip()
 OIDC_WSO2_SCOPES = os.getenv("OIDC_WSO2_SCOPES", "openid profile email").strip()
 OIDC_WSO2_ROLE_CLAIM = os.getenv("OIDC_WSO2_ROLE_CLAIM", "roles").strip()
 OIDC_WSO2_STAFF_ROLE = os.getenv("OIDC_WSO2_STAFF_ROLE", "").strip()
+INSTITUTIONAL_STUDENT_ROLE = os.getenv(
+    "INSTITUTIONAL_STUDENT_ROLE",
+    "ESTUDIANTE",
+).strip()
+BACKOFFICE_REQUIRED_ROLES = (
+    os.getenv("BACKOFFICE_REQUIRED_ROLES", "").strip() or OIDC_WSO2_STAFF_ROLE
+)
 OIDC_WSO2_EMAIL_CLAIM = os.getenv("OIDC_WSO2_EMAIL_CLAIM", "email").strip()
 OIDC_WSO2_USERNAME_CLAIM = os.getenv(
     "OIDC_WSO2_USERNAME_CLAIM",

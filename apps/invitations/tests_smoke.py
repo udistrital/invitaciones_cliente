@@ -1,5 +1,6 @@
 from typing import Optional
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -16,6 +17,12 @@ from apps.invitations.services import (
 class InvitationSmokeTest(TestCase):
     def setUp(self):
         self._sequence = 0
+        self.validator = get_user_model().objects.create_user(
+            username="validator-smoke",
+            password="secret123",
+            is_staff=True,
+        )
+        self.client.force_login(self.validator)
 
     def _next_suffix(self) -> int:
         self._sequence += 1

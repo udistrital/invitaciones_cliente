@@ -10,6 +10,10 @@ from openpyxl import Workbook
 from apps.ceremonies.models import Ceremony
 from apps.graduates.models import Graduate, GraduateImportBatch
 from apps.invitations.models import Invitation, ValidationLog
+from apps.accounts.services import (
+    AUTHENTICATION_MID_PROFILE_SESSION_KEY,
+    OIDC_PROVIDER_SESSION_KEY,
+)
 
 
 class BackofficeViewTest(TestCase):
@@ -34,6 +38,30 @@ class BackofficeViewTest(TestCase):
             academic_program="Ingenieria de Sistemas",
             invitation_quota=2,
         )
+        self.other_graduate = Graduate.objects.create(
+            ceremony=self.ceremony,
+            student_code="20209999",
+            document_type="CC",
+            document_number="99999999",
+            full_name="Carlos Ruiz",
+            academic_program="Ingenieria Industrial",
+            invitation_quota=2,
+        )
+
+    def login_student_session(self, student_code="20201001"):
+        session = self.client.session
+        session[OIDC_PROVIDER_SESSION_KEY] = "wso2"
+        session[AUTHENTICATION_MID_PROFILE_SESSION_KEY] = {
+            "roles": ["ESTUDIANTE"],
+            "document": "12345678",
+            "composed_document": "CC12345678",
+            "email": "laura@example.edu.co",
+            "family_name": "PEREZ",
+            "student_code": student_code,
+            "state": "E",
+            "raw_payload": {},
+        }
+        session.save()
 
     def build_excel_upload(self, rows, name="graduandos.xlsx"):
         workbook = Workbook()
@@ -67,6 +95,128 @@ class BackofficeViewTest(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("accounts:wso2-login"), response["Location"])
+
+    def test_student_dashboard_redirects_to_own_invitations(self):
+        self.login_student_session()
+
+        response = self.client.get(reverse("backoffice:dashboard"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("backoffice:invitation-list"))
+
+    def test_student_invitation_list_is_filtered_by_student_code(self):
+        self.login_student_session()
+        own_invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        other_invitation = Invitation.objects.create(
+            graduate=self.other_graduate,
+            sequence_number=1,
+        )
+
+        response = self.client.get(reverse("backoffice:invitation-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, own_invitation.code)
+        self.assertNotContains(response, other_invitation.code)
+        self.assertNotContains(response, "Anular")
+        self.assertNotContains(response, "Consultar</a>")
+
+    def test_student_invitation_list_matches_by_document_when_code_differs(self):
+        self.login_student_session(student_code="CODIGO-DIFERENTE")
+        own_invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        other_invitation = Invitation.objects.create(
+            graduate=self.other_graduate,
+            sequence_number=1,
+        )
+
+        response = self.client.get(reverse("backoffice:invitation-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, own_invitation.code)
+        self.assertNotContains(response, other_invitation.code)
+
+    def test_student_invitation_search_uses_student_code_not_invitation_code(self):
+        self.login_student_session()
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+
+        response_by_invitation_code = self.client.get(
+            reverse("backoffice:invitation-list"),
+            {"q": invitation.code},
+        )
+        response_by_student_code = self.client.get(
+            reverse("backoffice:invitation-list"),
+            {"q": self.graduate.student_code},
+        )
+
+        self.assertEqual(response_by_invitation_code.status_code, 200)
+        self.assertEqual(list(response_by_invitation_code.context["invitations"]), [])
+        self.assertEqual(response_by_student_code.status_code, 200)
+        self.assertEqual(
+            list(response_by_student_code.context["invitations"]),
+            [invitation],
+        )
+
+    def test_student_cannot_view_other_student_invitation_detail(self):
+        self.login_student_session()
+        other_invitation = Invitation.objects.create(
+            graduate=self.other_graduate,
+            sequence_number=1,
+        )
+
+        response = self.client.get(
+            reverse("backoffice:invitation-detail", kwargs={"pk": other_invitation.pk})
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_student_invitation_detail_hides_operational_controls(self):
+        self.login_student_session()
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        ValidationLog.objects.create(
+            invitation=invitation,
+            result=ValidationLog.Result.VALID,
+            validator=self.staff_user,
+        )
+
+        response = self.client.get(
+            reverse("backoffice:invitation-detail", kwargs={"pk": invitation.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, invitation.code)
+        self.assertContains(response, "Descargar PDF")
+        self.assertNotContains(response, "Consultar estado")
+        self.assertNotContains(response, "Regenerar invitacion")
+        self.assertNotContains(response, "Anular invitacion")
+        self.assertNotContains(response, "Historial de validacion")
+
+    def test_student_cannot_cancel_invitation(self):
+        self.login_student_session()
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+
+        response = self.client.post(
+            reverse("backoffice:invitation-cancel", kwargs={"pk": invitation.pk}),
+            {"next": reverse("backoffice:invitation-list")},
+        )
+
+        invitation.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("backoffice:invitation-list"))
+        self.assertEqual(invitation.status, Invitation.Status.CREATED)
 
     def test_staff_can_create_ceremony(self):
         self.client.force_login(self.staff_user)

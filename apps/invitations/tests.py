@@ -1,6 +1,7 @@
 import io
 
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core.exceptions import ValidationError
@@ -8,6 +9,10 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.accounts.services import (
+    AUTHENTICATION_MID_PROFILE_SESSION_KEY,
+    OIDC_PROVIDER_SESSION_KEY,
+)
 from apps.ceremonies.models import Ceremony
 from apps.graduates.models import Graduate
 from apps.invitations.models import AccessPoint, Invitation, ValidationLog
@@ -58,6 +63,21 @@ class InvitationModelTest(TestCase):
             password="secret123",
             is_staff=True,
         )
+
+    def login_student_session(self, student_code="20201001", document="12345678"):
+        session = self.client.session
+        session[OIDC_PROVIDER_SESSION_KEY] = "wso2"
+        session[AUTHENTICATION_MID_PROFILE_SESSION_KEY] = {
+            "roles": ["ESTUDIANTE"],
+            "document": document,
+            "composed_document": f"CC{document}",
+            "email": "laura@example.edu.co",
+            "family_name": "PEREZ",
+            "student_code": student_code,
+            "state": "E",
+            "raw_payload": {},
+        }
+        session.save()
 
     def test_invitation_generates_public_id_code_and_default_token_version(self):
         invitation = Invitation.objects.create(
@@ -254,6 +274,7 @@ class InvitationModelTest(TestCase):
             sequence_number=1,
         )
         token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
 
         response = self.client.get(
             reverse("invitation-validate"),
@@ -271,6 +292,7 @@ class InvitationModelTest(TestCase):
             sequence_number=1,
         )
         token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
 
         response = self.client.get(reverse("invitation-validate"), {"token": token})
 
@@ -287,6 +309,7 @@ class InvitationModelTest(TestCase):
             used_by=self.user,
         )
         token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
 
         response = self.client.get(reverse("invitation-validate"), {"token": token})
 
@@ -301,6 +324,7 @@ class InvitationModelTest(TestCase):
             cancelled_at=timezone.now(),
         )
         token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
 
         response = self.client.get(reverse("invitation-validate"), {"token": token})
 
@@ -308,6 +332,8 @@ class InvitationModelTest(TestCase):
         self.assertContains(response, "Invitacion anulada")
 
     def test_validation_page_renders_not_found_state_for_invalid_token(self):
+        self.client.force_login(self.user)
+
         response = self.client.get(
             reverse("invitation-validate"),
             {"token": "token-invalido"},
@@ -322,6 +348,7 @@ class InvitationModelTest(TestCase):
             sequence_number=1,
         )
         token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
 
         response = self.client.get(
             reverse("invitation-download-pdf"),
@@ -333,6 +360,59 @@ class InvitationModelTest(TestCase):
         self.assertIn("no-store", response["Cache-Control"])
         self.assertEqual(response["Referrer-Policy"], "same-origin")
         self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_pdf_download_allows_student_owner(self):
+        self.graduate.student_code = "20201001"
+        self.graduate.save(update_fields=["student_code"])
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+        self.login_student_session("20201001")
+
+        response = self.client.get(
+            reverse("invitation-download-pdf"),
+            {"token": token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
+    def test_pdf_download_allows_student_owner_by_document_when_code_differs(self):
+        self.graduate.student_code = "20201001"
+        self.graduate.save(update_fields=["student_code"])
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+        self.login_student_session("CODIGO-DIFERENTE")
+
+        response = self.client.get(
+            reverse("invitation-download-pdf"),
+            {"token": token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
+    def test_pdf_download_blocks_student_for_other_code(self):
+        self.graduate.student_code = "20201001"
+        self.graduate.save(update_fields=["student_code"])
+        invitation = Invitation.objects.create(
+            graduate=self.graduate,
+            sequence_number=1,
+        )
+        token = generate_invitation_token(invitation)
+        self.login_student_session("20209999", document="99999999")
+
+        response = self.client.get(
+            reverse("invitation-download-pdf"),
+            {"token": token},
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_qr_preview_endpoint_requires_staff_session(self):
         invitation = Invitation.objects.create(
@@ -370,6 +450,7 @@ class InvitationModelTest(TestCase):
             sequence_number=1,
         )
         token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
 
         response = self.client.get(reverse("invitation-validate"), {"token": token})
 
@@ -414,6 +495,7 @@ class InvitationModelTest(TestCase):
             sequence_number=1,
         )
         token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
 
         response = self.client.get(reverse("invitation-validate"), {"token": token})
 
@@ -429,6 +511,7 @@ class InvitationModelTest(TestCase):
             sequence_number=1,
         )
         token = generate_invitation_token(invitation)
+        self.client.force_login(self.user)
 
         self.client.get(reverse("invitation-validate"), {"token": token})
         self.client.get(reverse("invitation-validate"), {"token": token})
@@ -447,7 +530,8 @@ class InvitationModelTest(TestCase):
             {"token": token, "access_point": self.access_point.pk},
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("accounts:wso2-login"), response["Location"])
         self.assertNotIn("validation_access_point_id", self.client.session)
 
     def test_validation_get_persists_access_point_for_staff_session(self):
@@ -483,11 +567,8 @@ class InvitationModelTest(TestCase):
 
         response = self.client.get(reverse("invitation-validate"), {"token": token})
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Ultimo uso registrado")
-        self.assertNotContains(response, self.user.get_username())
-        self.assertNotContains(response, self.access_point.name)
-        self.assertNotContains(response, "10.0.0.15")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("accounts:wso2-login"), response["Location"])
 
     def test_validation_page_shows_internal_usage_metadata_for_staff(self):
         invitation = Invitation.objects.create(
@@ -590,7 +671,7 @@ class InvitationModelTest(TestCase):
 
         command_output = output.getvalue()
         self.assertIn("invitaciones listas", command_output)
-        self.assertIn("http://127.0.0.1:8000/invitaciones/validar/", command_output)
+        self.assertIn(f"{settings.APP_BASE_URL}/invitaciones/validar/", command_output)
 
     def test_regenerate_invitation_command_increments_token_version(self):
         invitation = Invitation.objects.create(

@@ -105,7 +105,6 @@ def get_oidc_settings() -> OIDCSettings:
     required_settings = {
         "OIDC_WSO2_CLIENT_ID": getattr(settings, "OIDC_WSO2_CLIENT_ID", ""),
         "OIDC_WSO2_CLIENT_SECRET": getattr(settings, "OIDC_WSO2_CLIENT_SECRET", ""),
-        "OIDC_WSO2_STAFF_ROLE": getattr(settings, "OIDC_WSO2_STAFF_ROLE", ""),
     }
     missing = [name for name, value in required_settings.items() if not value]
     if missing:
@@ -146,7 +145,7 @@ def get_oidc_settings() -> OIDCSettings:
         client_secret=required_settings["OIDC_WSO2_CLIENT_SECRET"],
         scopes=getattr(settings, "OIDC_WSO2_SCOPES", "openid profile email"),
         role_claim=getattr(settings, "OIDC_WSO2_ROLE_CLAIM", "roles"),
-        staff_role=required_settings["OIDC_WSO2_STAFF_ROLE"],
+        staff_role=getattr(settings, "OIDC_WSO2_STAFF_ROLE", ""),
         email_claim=getattr(settings, "OIDC_WSO2_EMAIL_CLAIM", "email"),
         username_claim=getattr(
             settings,
@@ -206,12 +205,32 @@ def authentication_mid_enabled() -> bool:
     return bool(getattr(settings, "AUTHENTICATION_MID_ENABLED", False))
 
 
+def get_backoffice_required_roles() -> list[str]:
+    configured = getattr(settings, "BACKOFFICE_REQUIRED_ROLES", "")
+    fallback = getattr(settings, "OIDC_WSO2_STAFF_ROLE", "")
+    return normalize_roles(configured or fallback)
+
+
 def get_staff_roles() -> list[str]:
-    return normalize_roles(get_oidc_settings().staff_role)
+    return get_backoffice_required_roles()
 
 
 def has_staff_role(roles: list[str]) -> bool:
-    return bool(set(roles).intersection(get_staff_roles()))
+    required_roles = set(get_backoffice_required_roles())
+    if not required_roles:
+        return False
+    return required_roles.issubset(set(roles))
+
+
+def get_student_role() -> str:
+    return normalize_string(
+        getattr(settings, "INSTITUTIONAL_STUDENT_ROLE", "ESTUDIANTE")
+    )
+
+
+def has_student_role(roles: list[str]) -> bool:
+    student_role = get_student_role()
+    return bool(student_role and student_role in roles)
 
 
 def get_sso_login_url(next_url: str = "") -> str:
@@ -401,6 +420,49 @@ def fetch_authentication_mid_profile(
 
 def get_authentication_mid_profile_from_session(request) -> dict:
     return request.session.get(AUTHENTICATION_MID_PROFILE_SESSION_KEY, {})
+
+
+def get_institutional_roles_from_session(request) -> list[str]:
+    return normalize_roles(
+        get_authentication_mid_profile_from_session(request).get("roles")
+    )
+
+
+def get_student_code_from_session(request) -> str:
+    return normalize_string(
+        get_authentication_mid_profile_from_session(request).get("student_code")
+    )
+
+
+def get_document_from_session(request) -> str:
+    return normalize_string(
+        get_authentication_mid_profile_from_session(request).get("document")
+    )
+
+
+def get_composed_document_from_session(request) -> str:
+    return normalize_string(
+        get_authentication_mid_profile_from_session(request).get("composed_document")
+    )
+
+
+def has_institutional_session(request) -> bool:
+    return bool(request.session.get(OIDC_PROVIDER_SESSION_KEY))
+
+
+def is_backoffice_operator(request) -> bool:
+    if request.user.is_authenticated and request.user.is_staff:
+        return True
+    return has_staff_role(get_institutional_roles_from_session(request))
+
+
+def is_student_limited(request) -> bool:
+    roles = get_institutional_roles_from_session(request)
+    return has_student_role(roles) and not has_staff_role(roles)
+
+
+def can_view_own_invitations(request) -> bool:
+    return is_backoffice_operator(request) or is_student_limited(request)
 
 
 def start_wso2_login(request):

@@ -14,15 +14,19 @@
     </header>
 
     <div class="backoffice-nav">
+        {% if request.user.is_staff or can_manage_backoffice %}
         <a href="{% url 'backoffice:dashboard' %}" class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}">Resumen</a>
         <a href="{% url 'backoffice:ceremony-list' %}" class="nav-link {% if 'ceremony' in request.resolver_match.url_name %}is-active{% endif %}">Ceremonias</a>
         <a href="{% url 'backoffice:graduate-list' %}" class="nav-link {% if 'graduate' in request.resolver_match.url_name %}is-active{% endif %}">Graduandos</a>
+        {% endif %}
         <a href="{% url 'backoffice:invitation-list' %}" class="nav-link {% if 'invitation' in request.resolver_match.url_name %}is-active{% endif %}">Invitaciones</a>
-        {% if request.user.is_authenticated %}
+        {% if request.user.is_authenticated or request.session.oidc_provider %}
         <span class="nav-link">Sesion: {{ request.user.get_username }}</span>
         <a href="{% url 'accounts:logout' %}" class="nav-link">Cerrar sesion</a>
         {% endif %}
+        {% if request.user.is_staff or can_manage_backoffice %}
         <a href="{% url 'admin:index' %}" class="nav-link">Admin Django</a>
+        {% endif %}
     </div>
 
     <div class="content">
