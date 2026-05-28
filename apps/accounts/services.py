@@ -38,6 +38,13 @@ class AuthenticationMidError(Exception):
 @dataclass(frozen=True)
 class OIDCSettings:
     server_metadata_url: str
+    authorize_url: str
+    token_url: str
+    jwks_url: str
+    userinfo_url: str
+    end_session_url: str
+    issuer: str
+    redirect_url: str
     client_id: str
     client_secret: str
     scopes: str
@@ -96,11 +103,6 @@ class OIDCAuthenticationResult:
 
 def get_oidc_settings() -> OIDCSettings:
     required_settings = {
-        "OIDC_WSO2_SERVER_METADATA_URL": getattr(
-            settings,
-            "OIDC_WSO2_SERVER_METADATA_URL",
-            "",
-        ),
         "OIDC_WSO2_CLIENT_ID": getattr(settings, "OIDC_WSO2_CLIENT_ID", ""),
         "OIDC_WSO2_CLIENT_SECRET": getattr(settings, "OIDC_WSO2_CLIENT_SECRET", ""),
         "OIDC_WSO2_STAFF_ROLE": getattr(settings, "OIDC_WSO2_STAFF_ROLE", ""),
@@ -111,8 +113,35 @@ def get_oidc_settings() -> OIDCSettings:
             "SSO_ENABLED=True requires these settings: " + ", ".join(missing) + "."
         )
 
+    server_metadata_url = getattr(settings, "OIDC_WSO2_SERVER_METADATA_URL", "")
+    authorize_url = getattr(settings, "OIDC_WSO2_AUTHORIZE_URL", "")
+    token_url = getattr(settings, "OIDC_WSO2_TOKEN_URL", "")
+    jwks_url = getattr(settings, "OIDC_WSO2_JWKS_URL", "")
+    manual_endpoint_settings = {
+        "OIDC_WSO2_AUTHORIZE_URL": authorize_url,
+        "OIDC_WSO2_TOKEN_URL": token_url,
+        "OIDC_WSO2_JWKS_URL": jwks_url,
+    }
+    missing_manual_endpoints = [
+        name for name, value in manual_endpoint_settings.items() if not value
+    ]
+    if not server_metadata_url and missing_manual_endpoints:
+        raise ImproperlyConfigured(
+            "SSO_ENABLED=True requires OIDC_WSO2_SERVER_METADATA_URL or these "
+            "manual endpoint settings: "
+            + ", ".join(manual_endpoint_settings.keys())
+            + "."
+        )
+
     return OIDCSettings(
-        server_metadata_url=required_settings["OIDC_WSO2_SERVER_METADATA_URL"],
+        server_metadata_url=server_metadata_url,
+        authorize_url=authorize_url,
+        token_url=token_url,
+        jwks_url=jwks_url,
+        userinfo_url=getattr(settings, "OIDC_WSO2_USERINFO_URL", ""),
+        end_session_url=getattr(settings, "OIDC_WSO2_END_SESSION_URL", ""),
+        issuer=getattr(settings, "OIDC_WSO2_ISSUER", ""),
+        redirect_url=getattr(settings, "OIDC_WSO2_REDIRECT_URL", ""),
         client_id=required_settings["OIDC_WSO2_CLIENT_ID"],
         client_secret=required_settings["OIDC_WSO2_CLIENT_SECRET"],
         scopes=getattr(settings, "OIDC_WSO2_SCOPES", "openid profile email"),
@@ -177,9 +206,12 @@ def authentication_mid_enabled() -> bool:
     return bool(getattr(settings, "AUTHENTICATION_MID_ENABLED", False))
 
 
+def get_staff_roles() -> list[str]:
+    return normalize_roles(get_oidc_settings().staff_role)
+
+
 def has_staff_role(roles: list[str]) -> bool:
-    staff_role = get_oidc_settings().staff_role
-    return staff_role in roles
+    return bool(set(roles).intersection(get_staff_roles()))
 
 
 def get_sso_login_url(next_url: str = "") -> str:
@@ -223,13 +255,31 @@ def pop_next_url(request) -> str:
 def get_wso2_oauth_client():
     config = get_oidc_settings()
     oauth = OAuth()
-    oauth.register(
-        name="wso2",
-        server_metadata_url=config.server_metadata_url,
-        client_id=config.client_id,
-        client_secret=config.client_secret,
-        client_kwargs={"scope": config.scopes},
-    )
+
+    client_config = {
+        "name": "wso2",
+        "client_id": config.client_id,
+        "client_secret": config.client_secret,
+        "client_kwargs": {"scope": config.scopes},
+    }
+    if config.authorize_url and config.token_url and config.jwks_url:
+        client_config.update(
+            {
+                "authorize_url": config.authorize_url,
+                "access_token_url": config.token_url,
+                "jwks_uri": config.jwks_url,
+            }
+        )
+        if config.userinfo_url:
+            client_config["userinfo_endpoint"] = config.userinfo_url
+        if config.end_session_url:
+            client_config["end_session_endpoint"] = config.end_session_url
+        if config.issuer:
+            client_config["issuer"] = config.issuer
+    else:
+        client_config["server_metadata_url"] = config.server_metadata_url
+
+    oauth.register(**client_config)
     return oauth.create_client("wso2")
 
 
@@ -260,10 +310,28 @@ def get_institutional_email_from_claims(claims: dict) -> str:
     return ""
 
 
+def get_institutional_roles_from_payload(payload: dict) -> list[str]:
+    config = get_authentication_mid_settings()
+    role_candidates = [
+        config.role_field,
+        "role",
+        "roles",
+        "rol",
+        "roles_institucionales",
+        "userRole",
+        "userRoles",
+    ]
+    for key in role_candidates:
+        roles = normalize_roles(get_claim_value(payload, key))
+        if roles:
+            return roles
+    return []
+
+
 def build_institutional_profile(payload: dict) -> InstitutionalProfile:
     config = get_authentication_mid_settings()
     return InstitutionalProfile(
-        roles=normalize_roles(get_claim_value(payload, config.role_field)),
+        roles=get_institutional_roles_from_payload(payload),
         document=normalize_string(get_claim_value(payload, config.document_field)),
         composed_document=normalize_string(
             get_claim_value(payload, config.composed_document_field)
@@ -336,8 +404,11 @@ def get_authentication_mid_profile_from_session(request) -> dict:
 
 
 def start_wso2_login(request):
+    config = get_oidc_settings()
     client = get_wso2_oauth_client()
-    redirect_uri = request.build_absolute_uri(reverse("accounts:wso2-callback"))
+    redirect_uri = config.redirect_url or request.build_absolute_uri(
+        reverse("accounts:wso2-callback")
+    )
     return client.authorize_redirect(request, redirect_uri)
 
 
@@ -441,7 +512,12 @@ def provision_user_from_claims(
     email: str = "",
 ):
     config = get_oidc_settings()
-    issuer = normalize_string(claims.get("iss")) or config.server_metadata_url
+    issuer = (
+        normalize_string(claims.get("iss"))
+        or config.issuer
+        or config.server_metadata_url
+        or config.authorize_url
+    )
     subject = str(claims.get("sub", "")).strip()
 
     if not subject:

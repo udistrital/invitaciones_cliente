@@ -13,14 +13,26 @@ from apps.accounts.services import (
     OIDC_NEXT_SESSION_KEY,
     build_institutional_profile,
     fetch_authentication_mid_profile,
+    get_staff_roles,
+    get_institutional_roles_from_payload,
     get_oidc_settings,
+    get_wso2_oauth_client,
+    has_staff_role,
     provision_user_from_claims,
 )
 
 
 OIDC_TEST_SETTINGS = {
     "SSO_ENABLED": True,
+    "AUTHENTICATION_MID_ENABLED": False,
     "OIDC_WSO2_SERVER_METADATA_URL": "https://wso2.example.com/oauth2/oidcdiscovery/.well-known/openid-configuration",
+    "OIDC_WSO2_AUTHORIZE_URL": "",
+    "OIDC_WSO2_TOKEN_URL": "",
+    "OIDC_WSO2_JWKS_URL": "",
+    "OIDC_WSO2_USERINFO_URL": "",
+    "OIDC_WSO2_END_SESSION_URL": "",
+    "OIDC_WSO2_ISSUER": "",
+    "OIDC_WSO2_REDIRECT_URL": "",
     "OIDC_WSO2_CLIENT_ID": "client-id",
     "OIDC_WSO2_CLIENT_SECRET": "client-secret",
     "OIDC_WSO2_STAFF_ROLE": "ceremonias.staff",
@@ -29,6 +41,17 @@ OIDC_TEST_SETTINGS = {
     "OIDC_WSO2_USERNAME_CLAIM": "preferred_username",
     "OIDC_WSO2_NAME_CLAIM": "name",
     "OIDC_POST_LOGOUT_REDIRECT_URL": "http://testserver/gestion/",
+}
+
+OIDC_MANUAL_ENDPOINT_TEST_SETTINGS = {
+    **OIDC_TEST_SETTINGS,
+    "OIDC_WSO2_SERVER_METADATA_URL": "",
+    "OIDC_WSO2_AUTHORIZE_URL": "https://wso2.example.com/oauth2/authorize",
+    "OIDC_WSO2_TOKEN_URL": "https://wso2.example.com/oauth2/token",
+    "OIDC_WSO2_JWKS_URL": "https://wso2.example.com/oauth2/jwks",
+    "OIDC_WSO2_USERINFO_URL": "https://wso2.example.com/oauth2/userinfo",
+    "OIDC_WSO2_END_SESSION_URL": "https://wso2.example.com/oidc/logout",
+    "OIDC_WSO2_REDIRECT_URL": "",
 }
 
 AUTHENTICATION_MID_TEST_SETTINGS = {
@@ -46,6 +69,7 @@ AUTHENTICATION_MID_TEST_SETTINGS = {
 
 
 class AccountsViewTest(TestCase):
+    @override_settings(SSO_ENABLED=False)
     def test_wso2_login_view_falls_back_to_admin_when_sso_is_disabled(self):
         response = self.client.get(
             reverse("accounts:wso2-login"),
@@ -54,6 +78,30 @@ class AccountsViewTest(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("admin:login"), response["Location"])
+
+    @override_settings(
+        **{
+            **OIDC_MANUAL_ENDPOINT_TEST_SETTINGS,
+            "OIDC_WSO2_REDIRECT_URL": "http://localhost:4200/",
+        }
+    )
+    def test_wso2_login_view_can_use_registered_root_redirect_url(self):
+        response = self.client.get(
+            reverse("accounts:wso2-login"),
+            {"next": reverse("backoffice:dashboard")},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(
+            "redirect_uri=http%3A%2F%2Flocalhost%3A4200%2F",
+            response["Location"],
+        )
+
+    def test_root_without_oidc_callback_redirects_to_backoffice(self):
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("backoffice:dashboard"))
 
     @override_settings(**OIDC_TEST_SETTINGS)
     def test_wso2_callback_creates_staff_session_for_authorized_user(self):
@@ -112,7 +160,7 @@ class AccountsViewTest(TestCase):
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(ExternalIdentity.objects.exists())
 
-    @override_settings(**OIDC_TEST_SETTINGS, **AUTHENTICATION_MID_TEST_SETTINGS)
+    @override_settings(**{**OIDC_TEST_SETTINGS, **AUTHENTICATION_MID_TEST_SETTINGS})
     def test_wso2_callback_uses_authentication_mid_profile_for_staff_access(self):
         session = self.client.session
         session[OIDC_NEXT_SESSION_KEY] = reverse("backoffice:dashboard")
@@ -168,7 +216,7 @@ class AccountsViewTest(TestCase):
         self.assertIn("_auth_user_id", self.client.session)
         self.assertTrue(ExternalIdentity.objects.exists())
 
-    @override_settings(**OIDC_TEST_SETTINGS, **AUTHENTICATION_MID_TEST_SETTINGS)
+    @override_settings(**{**OIDC_TEST_SETTINGS, **AUTHENTICATION_MID_TEST_SETTINGS})
     def test_wso2_callback_does_not_create_local_user_for_student_profile(self):
         session = self.client.session
         session[OIDC_NEXT_SESSION_KEY] = reverse("backoffice:dashboard")
@@ -227,6 +275,43 @@ class AccountsServiceTest(TestCase):
         with self.assertRaises(ImproperlyConfigured):
             get_oidc_settings()
 
+    @override_settings(
+        SSO_ENABLED=True,
+        OIDC_WSO2_SERVER_METADATA_URL="",
+        OIDC_WSO2_AUTHORIZE_URL="",
+        OIDC_WSO2_TOKEN_URL="",
+        OIDC_WSO2_JWKS_URL="",
+        OIDC_WSO2_CLIENT_ID="client-id",
+        OIDC_WSO2_CLIENT_SECRET="client-secret",
+        OIDC_WSO2_STAFF_ROLE="ceremonias.staff",
+    )
+    def test_get_oidc_settings_requires_discovery_or_manual_endpoints(self):
+        with self.assertRaises(ImproperlyConfigured):
+            get_oidc_settings()
+
+    @override_settings(**OIDC_MANUAL_ENDPOINT_TEST_SETTINGS)
+    def test_get_wso2_oauth_client_uses_manual_endpoints_without_discovery(self):
+        client = get_wso2_oauth_client()
+
+        self.assertEqual(
+            client.authorize_url,
+            "https://wso2.example.com/oauth2/authorize",
+        )
+        self.assertEqual(
+            client.access_token_url,
+            "https://wso2.example.com/oauth2/token",
+        )
+        metadata = client.load_server_metadata()
+        self.assertEqual(metadata["jwks_uri"], "https://wso2.example.com/oauth2/jwks")
+        self.assertEqual(
+            metadata["userinfo_endpoint"],
+            "https://wso2.example.com/oauth2/userinfo",
+        )
+        self.assertEqual(
+            metadata["end_session_endpoint"],
+            "https://wso2.example.com/oidc/logout",
+        )
+
     @override_settings(**AUTHENTICATION_MID_TEST_SETTINGS)
     def test_build_institutional_profile_normalizes_authentication_mid_payload(self):
         profile = build_institutional_profile(
@@ -247,6 +332,17 @@ class AccountsServiceTest(TestCase):
         self.assertEqual(profile.email, "jcastellanosj@udistrital.edu.co")
         self.assertEqual(profile.student_code, "20012020083")
         self.assertEqual(profile.state, "E")
+
+    @override_settings(**AUTHENTICATION_MID_TEST_SETTINGS)
+    def test_get_institutional_roles_from_payload_accepts_common_role_fields(self):
+        self.assertEqual(
+            get_institutional_roles_from_payload({"roles": ["ADMIN_ITAN"]}),
+            ["ADMIN_ITAN"],
+        )
+        self.assertEqual(
+            get_institutional_roles_from_payload({"rol": "ESTUDIANTE ADMIN_ITAN"}),
+            ["ESTUDIANTE", "ADMIN_ITAN"],
+        )
 
     @override_settings(**AUTHENTICATION_MID_TEST_SETTINGS)
     def test_fetch_authentication_mid_profile_posts_bearer_token_and_user(self):
@@ -289,6 +385,17 @@ class AccountsServiceTest(TestCase):
                     access_token="token-outlook",
                     user_email="jcastellanosj@udistrital.edu.co",
                 )
+
+    @override_settings(
+        **{
+            **OIDC_TEST_SETTINGS,
+            "OIDC_WSO2_STAFF_ROLE": "ADMIN_ITAN,SECRETARIA",
+        }
+    )
+    def test_has_staff_role_accepts_multiple_configured_roles(self):
+        self.assertEqual(get_staff_roles(), ["ADMIN_ITAN", "SECRETARIA"])
+        self.assertTrue(has_staff_role(["ESTUDIANTE", "SECRETARIA"]))
+        self.assertFalse(has_staff_role(["ESTUDIANTE"]))
 
     @override_settings(**OIDC_TEST_SETTINGS)
     def test_provision_user_from_claims_creates_local_staff_user_and_identity(self):

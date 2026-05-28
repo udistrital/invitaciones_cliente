@@ -1,6 +1,7 @@
 from urllib.parse import urlparse
 
 from django.contrib import messages
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
@@ -65,13 +66,27 @@ def wso2_callback_view(request):
 
     next_url = pop_next_url(request)
     if result.user is None and is_backoffice_url(next_url):
-        messages.error(
-            request,
-            "La cuenta autenticada no tiene el rol requerido para acceder al backoffice.",
+        detail = (
+            "La cuenta autenticada no tiene el rol requerido para acceder al backoffice."
         )
+        if settings.DEBUG and result.institutional_profile is not None:
+            received_roles = ", ".join(result.institutional_profile.roles) or "ninguno"
+            required_roles = getattr(settings, "OIDC_WSO2_STAFF_ROLE", "")
+            detail = (
+                f"{detail} Roles recibidos desde autenticacion_mid: "
+                f"{received_roles}. Roles requeridos: {required_roles}."
+            )
+        messages.error(request, detail)
         return HttpResponseRedirect(reverse("accounts:access-denied"))
 
     return HttpResponseRedirect(next_url)
+
+
+@require_GET
+def wso2_root_callback_view(request):
+    if request.GET.get("code") or request.GET.get("error"):
+        return wso2_callback_view(request)
+    return HttpResponseRedirect(reverse("backoffice:dashboard"))
 
 
 @require_GET
