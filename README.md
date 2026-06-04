@@ -201,7 +201,16 @@ Exportar el DDL institucional del dominio:
 uv run python manage.py export_institutional_ddl --output docs/ddl/invitaciones_grado.sql
 ```
 
-El archivo generado contiene el SQL del esquema `invitaciones_grado` y de las tablas propias del proyecto. Las tablas tecnicas de Django (`auth_*`, `django_*`, `sessions`, `admin_*`) quedan fuera de ese artefacto.
+El archivo generado contiene el SQL necesario para bootstrap completo del proyecto sobre PostgreSQL:
+
+- tablas tecnicas de Django (`auth_*`, `django_*`, `sessions`, `admin_*`);
+- esquema `invitaciones_grado` y tablas propias del dominio;
+- historial `django_migrations`;
+- metadatos base de `django_content_type` y `auth_permission`.
+
+Ese artefacto sirve para levantar una base nueva con la estructura minima que Django necesita para operar correctamente. Sigue siendo una salida para base nueva; no reemplaza una migracion de datos desde un entorno anterior.
+
+La ruta `docs/ddl/` se usa como carpeta local de exportacion y por eso no esta  versionada en Git. El SQL puede generarse bajo demanda.
 
 ## Ejecucion local
 
@@ -432,17 +441,4 @@ Esto deja el proyecto listo para revisar el flujo funcional desde `/gestion/` y 
 - QR y PDF se generan en memoria; no hay archivos temporales persistentes del flujo.
 - Para despliegues institucionales se recomienda `DEBUG=False`, `APP_BASE_URL` con `https://` y `SECRET_KEY` real.
 
-## Mejoras futuras
 
-Ver `docs/FUTURE_IMPROVEMENTS.md`.
-
-## Que falta para produccion
-
-- pipeline CI con pruebas y validaciones automaticas,
-- configuracion de despliegue segura por ambiente,
-- monitoreo y logging estructurado,
-- backup y restauracion de PostgreSQL,
-- politicas de acceso, rotacion de secretos y operacion institucional,
-- endurecimiento HTTP completo en un entorno HTTPS real,
-- proceso formal de provisionamiento de usuarios staff,
-- pruebas automatizadas ejecutadas en CI y no solo localmente.

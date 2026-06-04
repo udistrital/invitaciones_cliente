@@ -15,7 +15,11 @@ class ExportInstitutionalDDLCommandTest(TestCase):
             sql = output_path.read_text(encoding="utf-8")
 
         self.assertIn('CREATE SCHEMA IF NOT EXISTS "invitaciones_grado";', sql)
+        self.assertIn('CREATE TABLE "auth_user"', sql)
+        self.assertIn('CREATE TABLE "django_session"', sql)
+        self.assertIn('CREATE TABLE IF NOT EXISTS "django_migrations"', sql)
         self.assertIn('CREATE TABLE "invitaciones_grado"."ceremonia"', sql)
         self.assertIn('CREATE TABLE "invitaciones_grado"."graduando"', sql)
         self.assertIn('CREATE TABLE "invitaciones_grado"."invitacion"', sql)
-        self.assertIn('REFERENCES "auth_user"', sql)
+        self.assertIn('INSERT INTO "django_content_type"', sql)
+        self.assertIn('INSERT INTO "auth_permission"', sql)

@@ -8,3 +8,5 @@ staticfiles/
 .DS_Store
 *.7z
 docs/PRESENTACION_APROBACION_PILOTO.md
+.pg_tmp/
+docs/
