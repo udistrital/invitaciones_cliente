@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
-from apps.core.models import TimeStampedModel
+from apps.core.models import TimeStampedModel, schema_table
 
 
 class AccessPoint(TimeStampedModel):
@@ -14,27 +14,33 @@ class AccessPoint(TimeStampedModel):
         on_delete=models.PROTECT,
         related_name="access_points",
         verbose_name="ceremonia",
+        db_column="ceremonia_id",
     )
-    code = models.CharField("código", max_length=32)
-    name = models.CharField("nombre", max_length=100)
-    description = models.CharField("descripción", max_length=255, blank=True)
-    is_active = models.BooleanField("activo", default=True)
+    code = models.CharField("codigo", max_length=32, db_column="codigo")
+    name = models.CharField("nombre", max_length=100, db_column="nombre")
+    description = models.CharField(
+        "descripcion",
+        max_length=255,
+        blank=True,
+        db_column="descripcion",
+    )
 
     class Meta:
+        db_table = schema_table("punto_acceso")
         ordering = ("ceremony", "name")
         verbose_name = "punto de acceso"
         verbose_name_plural = "puntos de acceso"
         constraints = [
             models.UniqueConstraint(
                 fields=("ceremony", "code"),
-                name="unique_access_point_code_per_ceremony",
-            )
+                name="uq_ptacc_cer_codigo",
+            ),
         ]
         indexes = [
             models.Index(
                 fields=("ceremony", "is_active"),
-                name="accpt_cer_active_idx",
-            )
+                name="idx_ptacc_cer_act",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -53,34 +59,54 @@ class Invitation(TimeStampedModel):
         on_delete=models.PROTECT,
         related_name="invitations",
         verbose_name="graduando",
+        db_column="graduando_id",
     )
     public_id = models.UUIDField(
-        "identificador público",
+        "identificador publico",
         default=uuid.uuid4,
         editable=False,
-        unique=True,
+        db_column="identificador_publico",
     )
-    sequence_number = models.PositiveSmallIntegerField("número de invitación")
+    sequence_number = models.PositiveSmallIntegerField(
+        "numero de invitacion",
+        db_column="numero_invitacion",
+    )
     code = models.CharField(
-        "código",
+        "codigo",
         max_length=64,
-        unique=True,
         editable=False,
+        db_column="codigo",
     )
     token_version = models.PositiveSmallIntegerField(
-        "versión del token",
+        "version del token",
         default=1,
+        db_column="version_token",
     )
     status = models.CharField(
         "estado",
         max_length=20,
         choices=Status.choices,
         default=Status.CREATED,
-        db_index=True,
+        db_column="estado",
     )
-    sent_at = models.DateTimeField("fecha de envío", blank=True, null=True)
-    used_at = models.DateTimeField("fecha de uso", blank=True, null=True)
-    cancelled_at = models.DateTimeField("fecha de anulación", blank=True, null=True)
+    sent_at = models.DateTimeField(
+        "fecha de envio",
+        blank=True,
+        null=True,
+        db_column="fecha_envio",
+    )
+    used_at = models.DateTimeField(
+        "fecha de uso",
+        blank=True,
+        null=True,
+        db_column="fecha_uso",
+    )
+    cancelled_at = models.DateTimeField(
+        "fecha de anulacion",
+        blank=True,
+        null=True,
+        db_column="fecha_anulacion",
+    )
     used_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -88,6 +114,7 @@ class Invitation(TimeStampedModel):
         verbose_name="validada por",
         null=True,
         blank=True,
+        db_column="usuario_validador_id",
     )
     used_access_point = models.ForeignKey(
         "invitations.AccessPoint",
@@ -96,34 +123,46 @@ class Invitation(TimeStampedModel):
         verbose_name="punto de acceso",
         null=True,
         blank=True,
+        db_column="punto_acceso_uso_id",
     )
     used_device_label = models.CharField(
         "etiqueta del dispositivo",
         max_length=100,
         blank=True,
+        db_column="etiqueta_dispositivo_uso",
     )
     used_from_ip = models.GenericIPAddressField(
-        "IP de validación exitosa",
+        "IP de validacion exitosa",
         null=True,
         blank=True,
+        db_column="ip_validacion_exitosa",
     )
 
     class Meta:
+        db_table = schema_table("invitacion")
         ordering = ("-created_at",)
-        verbose_name = "invitación"
+        verbose_name = "invitacion"
         verbose_name_plural = "invitaciones"
         constraints = [
             models.CheckConstraint(
                 check=models.Q(sequence_number__gte=1),
-                name="invitation_sequence_number_gte_1",
+                name="ck_inv_numero",
             ),
             models.CheckConstraint(
                 check=models.Q(token_version__gte=1),
-                name="invitation_token_version_gte_1",
+                name="ck_inv_version",
+            ),
+            models.UniqueConstraint(
+                fields=("public_id",),
+                name="uq_inv_pubid",
+            ),
+            models.UniqueConstraint(
+                fields=("code",),
+                name="uq_inv_codigo",
             ),
             models.UniqueConstraint(
                 fields=("graduate", "sequence_number"),
-                name="unique_invitation_sequence_per_graduate",
+                name="uq_inv_grad_num",
             ),
             models.CheckConstraint(
                 check=(
@@ -143,17 +182,17 @@ class Invitation(TimeStampedModel):
                         & Q(cancelled_at__isnull=True)
                     )
                 ),
-                name="invitation_status_dates_consistent",
+                name="ck_inv_estado_fech",
             ),
         ]
         indexes = [
             models.Index(
                 fields=("graduate", "status"),
-                name="invitation_graduate_status_idx",
+                name="idx_inv_grad_est",
             ),
             models.Index(
                 fields=("status", "used_at"),
-                name="invitation_status_used_at_idx",
+                name="idx_inv_est_fuso",
             ),
         ]
 
@@ -174,7 +213,7 @@ class Invitation(TimeStampedModel):
                 raise ValidationError(
                     {
                         "sequence_number": (
-                            "El número de invitación no puede superar "
+                            "El numero de invitacion no puede superar "
                             "el cupo configurado para el graduando."
                         )
                     }
@@ -189,7 +228,7 @@ class Invitation(TimeStampedModel):
                 {
                     "used_access_point": (
                         "El punto de acceso debe pertenecer a la misma ceremonia "
-                        "de la invitación."
+                        "de la invitacion."
                     )
                 }
             )
@@ -200,12 +239,12 @@ class Invitation(TimeStampedModel):
         return super().save(*args, **kwargs)
 
 
-class ValidationLog(models.Model):
+class ValidationLog(TimeStampedModel):
     class Result(models.TextChoices):
-        VALID = "valid", "Válida"
+        VALID = "valid", "Valida"
         USED = "used", "Usada"
         CANCELLED = "cancelled", "Anulada"
-        INVALID_TOKEN = "invalid_token", "Token inválido"
+        INVALID_TOKEN = "invalid_token", "Token invalido"
         NOT_FOUND = "not_found", "No encontrada"
         ERROR = "error", "Error"
 
@@ -213,12 +252,16 @@ class ValidationLog(models.Model):
         "invitations.Invitation",
         on_delete=models.SET_NULL,
         related_name="validation_logs",
-        verbose_name="invitación",
+        verbose_name="invitacion",
         null=True,
         blank=True,
+        db_column="invitacion_id",
     )
     token_fingerprint = models.CharField(
-        "huella del token", max_length=16, blank=True, db_index=True
+        "huella del token",
+        max_length=16,
+        blank=True,
+        db_column="huella_token",
     )
     validator = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -227,6 +270,7 @@ class ValidationLog(models.Model):
         verbose_name="validado por",
         null=True,
         blank=True,
+        db_column="usuario_validador_id",
     )
     access_point = models.ForeignKey(
         "invitations.AccessPoint",
@@ -235,51 +279,73 @@ class ValidationLog(models.Model):
         verbose_name="punto de acceso",
         null=True,
         blank=True,
+        db_column="punto_acceso_id",
     )
     device_label = models.CharField(
         "etiqueta del dispositivo",
         max_length=100,
         blank=True,
+        db_column="etiqueta_dispositivo",
     )
     result = models.CharField(
         "resultado",
         max_length=20,
         choices=Result.choices,
-        db_index=True,
+        db_column="resultado",
     )
-    validated_at = models.DateTimeField("fecha de validación", auto_now_add=True)
-    marked_as_used = models.BooleanField("marcada como usada", default=False)
+    validated_at = models.DateTimeField(
+        "fecha de validacion",
+        auto_now_add=True,
+        db_column="fecha_validacion",
+    )
+    marked_as_used = models.BooleanField(
+        "marcada como usada",
+        default=False,
+        db_column="marcada_como_usada",
+    )
     source_ip = models.GenericIPAddressField(
-        "dirección IP", null=True, blank=True
+        "direccion IP",
+        null=True,
+        blank=True,
+        db_column="direccion_ip",
     )
-    user_agent = models.TextField("user agent", blank=True)
+    user_agent = models.TextField(
+        "user agent",
+        blank=True,
+        db_column="agente_usuario",
+    )
 
     class Meta:
+        db_table = schema_table("registro_validacion")
         ordering = ("-validated_at",)
-        verbose_name = "registro de validación"
-        verbose_name_plural = "registros de validación"
+        verbose_name = "registro de validacion"
+        verbose_name_plural = "registros de validacion"
         constraints = [
             models.CheckConstraint(
                 check=Q(marked_as_used=False) | Q(invitation__isnull=False),
-                name="validation_log_marked_used_requires_invitation",
-            )
+                name="ck_vlog_uso_req_inv",
+            ),
         ]
         indexes = [
             models.Index(
+                fields=("token_fingerprint",),
+                name="idx_vlog_huella",
+            ),
+            models.Index(
                 fields=("invitation", "validated_at"),
-                name="vlog_inv_time_idx",
+                name="idx_vlog_inv_fval",
             ),
             models.Index(
                 fields=("result", "validated_at"),
-                name="vlog_result_time_idx",
+                name="idx_vlog_res_fval",
             ),
             models.Index(
                 fields=("validator", "validated_at"),
-                name="vlog_user_time_idx",
+                name="idx_vlog_usr_fval",
             ),
             models.Index(
                 fields=("access_point", "validated_at"),
-                name="vlog_ap_time_idx",
+                name="idx_vlog_pacc_fval",
             ),
         ]
 
@@ -293,8 +359,8 @@ class ValidationLog(models.Model):
             raise ValidationError(
                 {
                     "marked_as_used": (
-                        "No es posible marcar una validación como usada "
-                        "sin una invitación asociada."
+                        "No es posible marcar una validacion como usada "
+                        "sin una invitacion asociada."
                     )
                 }
             )
@@ -308,7 +374,7 @@ class ValidationLog(models.Model):
                 {
                     "access_point": (
                         "El punto de acceso debe pertenecer a la misma ceremonia "
-                        "de la invitación validada."
+                        "de la invitacion validada."
                     )
                 }
             )

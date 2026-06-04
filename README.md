@@ -15,6 +15,8 @@ El sistema cubre un flujo institucional simple:
 
 La solucion prioriza mantenibilidad y velocidad de entrega. Los QR y PDFs se generan bajo demanda en memoria; no se almacenan binarios en base de datos ni en disco.
 
+La instalacion nueva del dominio ahora crea sus tablas en el esquema PostgreSQL `invitaciones_grado`, alineado con el lineamiento institucional de segmentacion funcional.
+
 ## Arquitectura
 
 La aplicacion sigue un monolito modular sobre Django 4.2:
@@ -174,6 +176,13 @@ Get-Content .env | ForEach-Object {
 
 ## Migraciones
 
+Importante:
+
+- esta fase asume instalacion nueva o recreacion de la base del proyecto;
+- no incluye migracion de datos desde estructuras anteriores;
+- las tablas propias del dominio (`ceremonias`, `graduandos`, `invitaciones`, cargas y cuentas propias) se crean en el esquema `invitaciones_grado`.
+- si ya existia una base previa o un volumen Docker con migraciones antiguas, debes recrearlo antes de ejecutar `migrate`. De lo contrario, Django detectara un historial de migraciones incompatible.
+
 Aplicar migraciones:
 
 ```bash
@@ -185,6 +194,14 @@ Verificar que no existan cambios pendientes:
 ```bash
 uv run python manage.py makemigrations --check
 ```
+
+Exportar el DDL institucional del dominio:
+
+```bash
+uv run python manage.py export_institutional_ddl --output docs/ddl/invitaciones_grado.sql
+```
+
+El archivo generado contiene el SQL del esquema `invitaciones_grado` y de las tablas propias del proyecto. Las tablas tecnicas de Django (`auth_*`, `django_*`, `sessions`, `admin_*`) quedan fuera de ese artefacto.
 
 ## Ejecucion local
 
@@ -223,6 +240,18 @@ Ejecutar pruebas:
 ```bash
 docker compose run --rm web python manage.py test
 ```
+
+Si ya habias levantado el proyecto antes del cambio al esquema `invitaciones_grado`, elimina el volumen viejo y recrea la base:
+
+```bash
+docker compose down -v
+docker compose up -d db
+docker compose run --rm web python manage.py migrate
+docker compose run --rm web python manage.py createsuperuser
+docker compose up web
+```
+
+Si no deseas perder datos, este cambio no te sirve todavia: hace falta una migracion real de datos desde la estructura anterior hacia el nuevo esquema institucional.
 
 Puntos utiles:
 
