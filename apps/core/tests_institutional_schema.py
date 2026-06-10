@@ -3,11 +3,9 @@ from django.test import TestCase
 
 from apps.accounts.models import ExternalIdentity
 from apps.ceremonies.models import Ceremony
+from apps.core.schema import INSTITUTIONAL_SCHEMA, INSTITUTIONAL_SEARCH_PATH
 from apps.graduates.models import Graduate, GraduateImportBatch
 from apps.invitations.models import AccessPoint, Invitation, ValidationLog
-
-
-INSTITUTIONAL_SCHEMA = "invitaciones_grado"
 
 
 class InstitutionalSchemaTest(TestCase):
@@ -55,7 +53,17 @@ class InstitutionalSchemaTest(TestCase):
 
         self.assertTrue(
             {
+                "auth_group",
+                "auth_group_permissions",
+                "auth_permission",
+                "auth_user",
+                "auth_user_groups",
+                "auth_user_user_permissions",
                 "ceremonia",
+                "django_admin_log",
+                "django_content_type",
+                "django_migrations",
+                "django_session",
                 "graduando",
                 "lote_importacion_graduando",
                 "punto_acceso",
@@ -93,18 +101,33 @@ class InstitutionalSchemaTest(TestCase):
                 self.assertIn("fecha_creacion", columns)
                 self.assertIn("fecha_modificacion", columns)
 
-    def test_auth_tables_remain_outside_institutional_schema(self):
+    def test_technical_tables_exist_in_institutional_schema(self):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
                 SELECT table_schema
                 FROM information_schema.tables
-                WHERE table_name = 'auth_user'
+                WHERE table_name IN (
+                    'auth_user',
+                    'auth_permission',
+                    'django_content_type',
+                    'django_migrations',
+                    'django_session',
+                    'django_admin_log'
+                )
                 ORDER BY table_schema
-                LIMIT 1
                 """
             )
-            row = cursor.fetchone()
+            schemas = {row[0] for row in cursor.fetchall()}
 
-        self.assertIsNotNone(row)
-        self.assertNotEqual(row[0], INSTITUTIONAL_SCHEMA)
+        self.assertEqual(schemas, {INSTITUTIONAL_SCHEMA})
+
+    def test_connection_search_path_includes_institutional_schema(self):
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW search_path")
+            search_path = cursor.fetchone()[0]
+
+        self.assertIn(INSTITUTIONAL_SCHEMA, search_path)
+        self.assertIn("public", search_path)
+        normalized_search_path = search_path.replace(" ", "").replace('"', "")
+        self.assertEqual(normalized_search_path, INSTITUTIONAL_SEARCH_PATH)

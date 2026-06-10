@@ -5,6 +5,8 @@ from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
+from apps.core.schema import INSTITUTIONAL_SEARCH_PATH
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -119,6 +121,9 @@ DATABASES = {
         "PASSWORD": get_env("DB_PASSWORD", required=True),
         "HOST": get_env("DB_HOST", required=True),
         "PORT": get_env("DB_PORT", "5432"),
+        "OPTIONS": {
+            "options": f"-c search_path={INSTITUTIONAL_SEARCH_PATH}",
+        },
     }
 }
 
