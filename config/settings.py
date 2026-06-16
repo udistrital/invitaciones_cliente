@@ -54,11 +54,7 @@ def normalize_base_url(value: str) -> str:
 
 SECRET_KEY = get_env("SECRET_KEY", required=True)
 DEBUG = get_bool("DEBUG", False)
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in get_env("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
-    if host.strip()
-]
+ALLOWED_HOSTS = ['*']
 
 if not DEBUG and SECRET_KEY.startswith("change-me"):
     raise ImproperlyConfigured(
