@@ -118,7 +118,7 @@ DATABASES = {
         "HOST": get_env("DB_HOST", required=True),
         "PORT": get_env("DB_PORT", "5432"),
         "OPTIONS": {
-            "options": f"-c search_path={INSTITUTIONAL_SEARCH_PATH}",
+            "options": f"-c search_path={get_env('DB_SCHEMA', INSTITUTIONAL_SEARCH_PATH)}",
         },
     }
 }
