@@ -115,6 +115,9 @@ DATABASES = {
         "PASSWORD": get_env("DB_PASSWORD", required=True),
         "HOST": get_env("DB_HOST", required=True),
         "PORT": get_env("DB_PORT", "5432"),
+        "OPTIONS": {
+            "options": f"-c search_path={get_env('DB_SCHEMA', 'public')}"
+        },
     }
 }
 
