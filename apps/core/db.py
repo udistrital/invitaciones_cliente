@@ -1,6 +1,6 @@
 from django.db.backends.signals import connection_created
 
-from apps.core.schema import create_schema_sql, set_search_path_sql
+from apps.core.schema import set_search_path_sql
 
 
 def bootstrap_postgresql_schema(sender, connection, **kwargs):
@@ -8,7 +8,6 @@ def bootstrap_postgresql_schema(sender, connection, **kwargs):
         return
 
     with connection.cursor() as cursor:
-        cursor.execute(create_schema_sql())
         cursor.execute(set_search_path_sql())
 
 
