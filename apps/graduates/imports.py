@@ -1,5 +1,6 @@
 import hashlib
 import io
+import logging
 from collections import Counter
 
 from django.core.exceptions import ValidationError
@@ -12,6 +13,7 @@ from openpyxl.utils import get_column_letter
 from apps.graduates.models import Graduate, GraduateImportBatch
 from apps.invitations.services import issue_invitations_for_graduate
 
+logger = logging.getLogger(__name__)
 
 TEMPLATE_HEADERS = (
     "codigo_estudiantil",
@@ -61,7 +63,7 @@ def create_graduate_import_batch(*, ceremony, uploaded_file, uploaded_by=None):
         file_errors=source["file_errors"],
     )
 
-    return GraduateImportBatch.objects.create(
+    batch = GraduateImportBatch.objects.create(
         ceremony=ceremony,
         uploaded_by=uploaded_by,
         source_filename=source["source_filename"],
@@ -71,6 +73,18 @@ def create_graduate_import_batch(*, ceremony, uploaded_file, uploaded_by=None):
         rows_error=preview["rows_error"],
         preview_payload=preview,
     )
+    logger.info(
+        "Graduate import batch validated batch_id=%s ceremony_id=%s ceremony_code=%s filename=%s rows_total=%s rows_valid=%s rows_error=%s uploaded_by_id=%s",
+        batch.pk,
+        ceremony.pk,
+        ceremony.code,
+        batch.source_filename,
+        batch.rows_total,
+        batch.rows_valid,
+        batch.rows_error,
+        getattr(uploaded_by, "pk", None),
+    )
+    return batch
 
 
 def confirm_graduate_import_batch(*, batch, confirmed_by=None):
@@ -117,6 +131,16 @@ def confirm_graduate_import_batch(*, batch, confirmed_by=None):
             batch.preview_payload = preview
             batch.failure_message = ""
             batch.save()
+            logger.info(
+                "Graduate import batch confirmed batch_id=%s ceremony_id=%s ceremony_code=%s graduates_created=%s graduates_updated=%s invitations_created=%s confirmed_by_id=%s",
+                batch.pk,
+                batch.ceremony_id,
+                batch.ceremony.code,
+                batch.graduates_created,
+                batch.graduates_updated,
+                batch.invitations_created,
+                getattr(confirmed_by, "pk", None),
+            )
     except Exception as exc:
         GraduateImportBatch.objects.filter(pk=batch.pk).update(
             status=GraduateImportBatch.Status.FAILED,
@@ -125,6 +149,12 @@ def confirm_graduate_import_batch(*, batch, confirmed_by=None):
             rows_total=preview["rows_total"],
             rows_valid=preview["rows_valid"],
             rows_error=preview["rows_error"],
+        )
+        logger.exception(
+            "Graduate import batch failed batch_id=%s ceremony_id=%s ceremony_code=%s",
+            batch.pk,
+            batch.ceremony_id,
+            batch.ceremony.code,
         )
         raise
 
