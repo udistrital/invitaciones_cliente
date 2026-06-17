@@ -1,5 +1,7 @@
 from django.db import migrations
 
+from apps.core.schema import create_schema_sql
+
 
 class Migration(migrations.Migration):
     initial = True
@@ -8,7 +10,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            sql='CREATE SCHEMA IF NOT EXISTS "invitaciones_grado";',
+            sql=create_schema_sql(),
             reverse_sql='DROP SCHEMA IF EXISTS "invitaciones_grado" CASCADE;',
         ),
     ]

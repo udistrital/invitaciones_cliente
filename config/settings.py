@@ -5,6 +5,8 @@ from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
+from apps.core.schema import INSTITUTIONAL_SEARCH_PATH
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -115,6 +117,9 @@ DATABASES = {
         "PASSWORD": get_env("DB_PASSWORD", required=True),
         "HOST": get_env("DB_HOST", required=True),
         "PORT": get_env("DB_PORT", "5432"),
+        "OPTIONS": {
+            "options": f"-c search_path={INSTITUTIONAL_SEARCH_PATH}",
+        },
     }
 }
 
@@ -202,6 +207,43 @@ AUTHENTICATION_MID_STATE_FIELD = os.getenv(
     "AUTHENTICATION_MID_STATE_FIELD",
     "Estado",
 ).strip()
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "WARNING",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.server": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "apps": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
 
 IS_HTTPS_BASE_URL = APP_BASE_URL.startswith("https://")
 SESSION_COOKIE_HTTPONLY = True

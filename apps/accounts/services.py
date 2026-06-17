@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Optional
@@ -21,6 +22,7 @@ OIDC_NEXT_SESSION_KEY = "oidc_login_next_url"
 OIDC_ID_TOKEN_SESSION_KEY = "oidc_id_token"
 OIDC_PROVIDER_SESSION_KEY = "oidc_provider"
 AUTHENTICATION_MID_PROFILE_SESSION_KEY = "authentication_mid_profile"
+logger = logging.getLogger(__name__)
 
 
 class OIDCAuthenticationError(Exception):
@@ -507,6 +509,11 @@ def complete_wso2_authentication(request) -> OIDCAuthenticationResult:
     if institutional_profile is not None and not has_staff_role(
         institutional_profile.roles
     ):
+        logger.warning(
+            "SSO access denied for institutional profile email=%s roles=%s",
+            institutional_profile.email,
+            ",".join(institutional_profile.roles),
+        )
         return OIDCAuthenticationResult(
             user=None,
             claims=claims,
@@ -528,6 +535,13 @@ def complete_wso2_authentication(request) -> OIDCAuthenticationResult:
             "backend",
             settings.AUTHENTICATION_BACKENDS[0],
         ),
+    )
+    logger.info(
+        "SSO login completed provider=%s user_id=%s email=%s institutional_roles=%s",
+        WSO2_PROVIDER,
+        user.pk,
+        user.email,
+        ",".join(institutional_profile.roles) if institutional_profile else "",
     )
     return OIDCAuthenticationResult(
         user=user,
