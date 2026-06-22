@@ -3,7 +3,7 @@ name: pipeline-aplicaciones
 
 trigger:
   branch:
-    - master
+    - main
   event:
     - push
 
