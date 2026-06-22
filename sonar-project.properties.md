@@ -1,5 +1,5 @@
-sonar.projectKey=nombre_proyecto_mf
-sonar.projectName=nombre_proyecto_mf
+sonar.projectKey=invitaciones_cliente
+sonar.projectName=invitaciones_cliente
 sonar.projectVersion=1.0
 
 sonar.sources=.
