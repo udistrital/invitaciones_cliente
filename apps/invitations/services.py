@@ -1,5 +1,6 @@
 import hashlib
 import io
+import logging
 from datetime import timedelta
 from dataclasses import dataclass
 from urllib.parse import urlencode
@@ -21,6 +22,7 @@ from apps.invitations.models import AccessPoint, Invitation, ValidationLog
 
 
 INVITATION_TOKEN_SALT = "apps.invitations.token"
+logger = logging.getLogger(__name__)
 
 
 class InvalidInvitationToken(Exception):
@@ -210,6 +212,7 @@ def split_text(text: str, max_chars: int) -> List[str]:
 
 def issue_invitations_for_graduate(graduate: Graduate) -> List[Invitation]:
     invitations = []
+    created_count = 0
     existing_by_sequence = {
         invitation.sequence_number: invitation
         for invitation in graduate.invitations.all()
@@ -222,8 +225,17 @@ def issue_invitations_for_graduate(graduate: Graduate) -> List[Invitation]:
                 graduate=graduate,
                 sequence_number=sequence_number,
             )
+            created_count += 1
         invitations.append(invitation)
 
+    logger.info(
+        "Invitations prepared graduate_id=%s ceremony_id=%s total=%s created=%s quota=%s",
+        graduate.pk,
+        graduate.ceremony_id,
+        len(invitations),
+        created_count,
+        graduate.invitation_quota,
+    )
     return invitations
 
 
@@ -247,6 +259,13 @@ def rotate_invitation_token(invitation: Invitation) -> Invitation:
 
     invitation.token_version += 1
     invitation.save()
+    logger.info(
+        "Invitation token rotated invitation_id=%s code=%s token_version=%s status=%s",
+        invitation.pk,
+        invitation.code,
+        invitation.token_version,
+        invitation.status,
+    )
     return invitation
 
 
@@ -428,26 +447,43 @@ def inspect_invitation_token(token: str, request) -> ValidationOutcome:
             invitation=invitation,
             access_point=access_point,
         )
-        return ValidationOutcome(
+        outcome = ValidationOutcome(
             state=get_display_state(result),
             message=build_validation_message(result, invitation),
             invitation=invitation,
             log_result=result,
             token_fingerprint=get_token_fingerprint(token),
         )
+        logger.info(
+            "Invitation validation inspected result=%s invitation_id=%s code=%s token_fingerprint=%s access_point_id=%s validator_user_id=%s",
+            outcome.log_result,
+            invitation.pk,
+            invitation.code,
+            outcome.token_fingerprint,
+            getattr(access_point, "pk", None),
+            getattr(get_validator_user(request), "pk", None),
+        )
+        return outcome
     except InvalidInvitationToken as exc:
         log_validation_attempt(
             token=token,
             request=request,
             result=exc.result,
         )
-        return ValidationOutcome(
+        outcome = ValidationOutcome(
             state="not_found",
             message=build_validation_message(exc.result),
             invitation=None,
             log_result=exc.result,
             token_fingerprint=get_token_fingerprint(token),
         )
+        logger.warning(
+            "Invitation validation inspected invalid result=%s token_fingerprint=%s validator_user_id=%s",
+            outcome.log_result,
+            outcome.token_fingerprint,
+            getattr(get_validator_user(request), "pk", None),
+        )
+        return outcome
 
 
 def consume_invitation(token: str, request, access_point: Optional[AccessPoint] = None) -> ValidationOutcome:
@@ -459,13 +495,20 @@ def consume_invitation(token: str, request, access_point: Optional[AccessPoint] 
             request=request,
             result=exc.result,
         )
-        return ValidationOutcome(
+        outcome = ValidationOutcome(
             state="not_found",
             message=build_validation_message(exc.result),
             invitation=None,
             log_result=exc.result,
             token_fingerprint=get_token_fingerprint(token),
         )
+        logger.warning(
+            "Invitation consume rejected result=%s token_fingerprint=%s validator_user_id=%s",
+            outcome.log_result,
+            outcome.token_fingerprint,
+            getattr(get_validator_user(request), "pk", None),
+        )
+        return outcome
 
     public_id = payload.get("invitation")
     token_version = payload.get("version")
@@ -509,7 +552,7 @@ def consume_invitation(token: str, request, access_point: Optional[AccessPoint] 
                     marked_as_used=True,
                     access_point=access_point,
                 )
-                return ValidationOutcome(
+                outcome = ValidationOutcome(
                     state="used",
                     message="Invitacion marcada como usada correctamente.",
                     invitation=invitation,
@@ -517,6 +560,15 @@ def consume_invitation(token: str, request, access_point: Optional[AccessPoint] 
                     token_fingerprint=get_token_fingerprint(token),
                     marked_as_used=True,
                 )
+                logger.info(
+                    "Invitation consumed invitation_id=%s code=%s token_fingerprint=%s access_point_id=%s validator_user_id=%s",
+                    invitation.pk,
+                    invitation.code,
+                    outcome.token_fingerprint,
+                    getattr(access_point, "pk", None),
+                    getattr(invitation.used_by, "pk", None),
+                )
+                return outcome
 
             log_validation_attempt(
                 token=token,
@@ -525,36 +577,60 @@ def consume_invitation(token: str, request, access_point: Optional[AccessPoint] 
                 invitation=invitation,
                 access_point=access_point,
             )
-            return ValidationOutcome(
+            outcome = ValidationOutcome(
                 state=get_display_state(state_result),
                 message=build_validation_message(state_result, invitation),
                 invitation=invitation,
                 log_result=state_result,
                 token_fingerprint=get_token_fingerprint(token),
             )
+            logger.warning(
+                "Invitation consume rejected result=%s invitation_id=%s code=%s token_fingerprint=%s access_point_id=%s validator_user_id=%s",
+                outcome.log_result,
+                invitation.pk,
+                invitation.code,
+                outcome.token_fingerprint,
+                getattr(access_point, "pk", None),
+                getattr(get_validator_user(request), "pk", None),
+            )
+            return outcome
     except Invitation.DoesNotExist:
         log_validation_attempt(
             token=token,
             request=request,
             result=ValidationLog.Result.NOT_FOUND,
         )
-        return ValidationOutcome(
+        outcome = ValidationOutcome(
             state="not_found",
             message=build_validation_message(ValidationLog.Result.NOT_FOUND),
             invitation=None,
             log_result=ValidationLog.Result.NOT_FOUND,
             token_fingerprint=get_token_fingerprint(token),
         )
+        logger.warning(
+            "Invitation consume rejected result=%s token_fingerprint=%s validator_user_id=%s",
+            outcome.log_result,
+            outcome.token_fingerprint,
+            getattr(get_validator_user(request), "pk", None),
+        )
+        return outcome
     except InvalidInvitationToken as exc:
         log_validation_attempt(
             token=token,
             request=request,
             result=exc.result,
         )
-        return ValidationOutcome(
+        outcome = ValidationOutcome(
             state="not_found",
             message=build_validation_message(exc.result),
             invitation=None,
             log_result=exc.result,
             token_fingerprint=get_token_fingerprint(token),
         )
+        logger.warning(
+            "Invitation consume rejected result=%s token_fingerprint=%s validator_user_id=%s",
+            outcome.log_result,
+            outcome.token_fingerprint,
+            getattr(get_validator_user(request), "pk", None),
+        )
+        return outcome

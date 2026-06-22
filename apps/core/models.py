@@ -1,11 +1,6 @@
 from django.db import models
 
-
-INSTITUTIONAL_SCHEMA = "invitaciones_grado"
-
-
-def schema_table(table_name: str) -> str:
-    return f'"{INSTITUTIONAL_SCHEMA}"."{table_name}"'
+from apps.core.schema import schema_table
 
 
 class TimeStampedModel(models.Model):
