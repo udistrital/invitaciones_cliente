@@ -510,9 +510,10 @@ def complete_wso2_authentication(request) -> OIDCAuthenticationResult:
         institutional_profile.roles
     ):
         logger.warning(
-            "SSO access denied for institutional profile email=%s roles=%s",
+            "SSO access denied for institutional profile email=%s roles=%s required_roles=%s",
             institutional_profile.email,
             ",".join(institutional_profile.roles),
+            ",".join(get_backoffice_required_roles()),
         )
         return OIDCAuthenticationResult(
             user=None,
@@ -605,6 +606,14 @@ def provision_user_from_claims(
         roles if roles is not None else normalize_roles(claims.get(config.role_claim))
     )
     if not has_staff_role(roles):
+        logger.warning(
+            "SSO access denied for claims email=%s subject=%s role_claim=%s roles=%s required_roles=%s",
+            normalize_string(email or claims.get(config.email_claim)),
+            subject,
+            config.role_claim,
+            ",".join(roles),
+            ",".join(get_backoffice_required_roles()),
+        )
         raise OIDCAccessDenied(
             "La cuenta autenticada no tiene el rol requerido para acceder al backoffice."
         )
