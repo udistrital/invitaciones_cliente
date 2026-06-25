@@ -23,6 +23,18 @@ OIDC_ID_TOKEN_SESSION_KEY = "oidc_id_token"
 OIDC_PROVIDER_SESSION_KEY = "oidc_provider"
 AUTHENTICATION_MID_PROFILE_SESSION_KEY = "authentication_mid_profile"
 logger = logging.getLogger(__name__)
+OAUTH_LOG_REDACTED_VALUE = "[redacted]"
+OAUTH_LOG_SENSITIVE_KEYS = {
+    "access_token",
+    "assertion",
+    "authorization",
+    "client_secret",
+    "code",
+    "code_verifier",
+    "id_token",
+    "password",
+    "refresh_token",
+}
 
 
 class OIDCAuthenticationError(Exception):
@@ -273,6 +285,44 @@ def pop_next_url(request) -> str:
     return reverse("backoffice:dashboard")
 
 
+def sanitize_oauth_log_value(value):
+    if isinstance(value, dict):
+        return {
+            key: (
+                OAUTH_LOG_REDACTED_VALUE
+                if str(key).lower() in OAUTH_LOG_SENSITIVE_KEYS
+                else sanitize_oauth_log_value(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [sanitize_oauth_log_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(sanitize_oauth_log_value(item) for item in value)
+    return value
+
+
+def install_oauth_token_request_logger(session) -> None:
+    original_post = session.post
+
+    def post_with_token_request_log(url, *args, **kwargs):
+        token_endpoint = normalize_string(
+            getattr(session, "metadata", {}).get("token_endpoint")
+        )
+        normalized_url = normalize_string(url)
+        if normalized_url == token_endpoint or normalized_url.endswith("/oauth2/token"):
+            logger.info(
+                "OIDC token request method=POST url=%s data=%s headers=%s auth=%s",
+                normalized_url,
+                sanitize_oauth_log_value(kwargs.get("data") or {}),
+                sanitize_oauth_log_value(dict(kwargs.get("headers") or {})),
+                kwargs.get("auth").__class__.__name__ if kwargs.get("auth") else "",
+            )
+        return original_post(url, *args, **kwargs)
+
+    session.post = post_with_token_request_log
+
+
 def get_wso2_oauth_client():
     config = get_oidc_settings()
     oauth = OAuth()
@@ -282,6 +332,7 @@ def get_wso2_oauth_client():
         "client_id": config.client_id,
         "client_secret": config.client_secret,
         "client_kwargs": {"scope": config.scopes},
+        "compliance_fix": install_oauth_token_request_logger,
     }
     if config.authorize_url and config.token_url and config.jwks_url:
         client_config.update(
@@ -384,21 +435,38 @@ def fetch_authentication_mid_profile(
         )
 
     config = get_authentication_mid_settings()
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {access_token}",
+    }
+    payload = {"user": user_email}
+    logger.info(
+        "authentication_mid request method=POST url=%s json=%s headers=%s timeout=%s",
+        config.user_role_url,
+        # sanitize_oauth_log_value(payload), #para anonimizar la petición en los logs.
+        # sanitize_oauth_log_value(headers),
+        payload,
+        headers,
+        config.timeout_seconds,
+    )
     try:
         response = requests.post(
             config.user_role_url,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {access_token}",
-            },
-            json={"user": user_email},
+            headers=headers,
+            json=payload,
             timeout=config.timeout_seconds,
         )
     except requests.RequestException as exc:
         raise AuthenticationMidError(
             "No fue posible consultar autenticacion_mid."
         ) from exc
+
+    logger.info(
+        "authentication_mid response status=%s url=%s",
+        response.status_code,
+        config.user_role_url,
+    )
 
     if response.status_code >= 400:
         raise AuthenticationMidError(

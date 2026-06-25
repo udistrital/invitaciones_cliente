@@ -19,7 +19,9 @@ from apps.accounts.services import (
     get_staff_roles,
     get_wso2_oauth_client,
     has_staff_role,
+    install_oauth_token_request_logger,
     provision_user_from_claims,
+    sanitize_oauth_log_value,
 )
 
 
@@ -403,6 +405,50 @@ class AccountsServiceTest(TestCase):
             "https://wso2.example.com/oidc/logout",
         )
 
+    def test_sanitize_oauth_log_value_redacts_sensitive_values(self):
+        sanitized = sanitize_oauth_log_value(
+            {
+                "grant_type": "authorization_code",
+                "code": "secret-code",
+                "client_secret": "secret",
+                "headers": {"Authorization": "Basic secret"},
+                "redirect_uri": "https://example.edu/callback",
+            }
+        )
+
+        self.assertEqual(sanitized["grant_type"], "authorization_code")
+        self.assertEqual(sanitized["redirect_uri"], "https://example.edu/callback")
+        self.assertEqual(sanitized["code"], "[redacted]")
+        self.assertEqual(sanitized["client_secret"], "[redacted]")
+        self.assertEqual(sanitized["headers"]["Authorization"], "[redacted]")
+
+    def test_token_request_logger_logs_sanitized_request(self):
+        session = Mock()
+        session.metadata = {"token_endpoint": "https://wso2.example.com/oauth2/token"}
+        session.post = Mock(return_value="response")
+
+        install_oauth_token_request_logger(session)
+
+        with self.assertLogs("apps.accounts.services", level="INFO") as logs:
+            response = session.post(
+                "https://wso2.example.com/oauth2/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": "secret-code",
+                    "redirect_uri": "https://example.edu/callback",
+                },
+                headers={"Authorization": "Basic secret"},
+                auth=Mock(),
+            )
+
+        self.assertEqual(response, "response")
+        output = "\n".join(logs.output)
+        self.assertIn("OIDC token request method=POST", output)
+        self.assertIn("grant_type", output)
+        self.assertIn("redirect_uri", output)
+        self.assertNotIn("secret-code", output)
+        self.assertNotIn("Basic secret", output)
+
     @override_settings(**AUTHENTICATION_MID_TEST_SETTINGS)
     def test_build_institutional_profile_normalizes_authentication_mid_payload(self):
         profile = build_institutional_profile(
@@ -451,16 +497,22 @@ class AccountsServiceTest(TestCase):
             "apps.accounts.services.requests.post",
             return_value=mock_response,
         ) as post:
-            profile = fetch_authentication_mid_profile(
-                access_token="token-outlook",
-                user_email="jcastellanosj@udistrital.edu.co",
-            )
+            with self.assertLogs("apps.accounts.services", level="INFO") as logs:
+                profile = fetch_authentication_mid_profile(
+                    access_token="token-outlook",
+                    user_email="jcastellanosj@udistrital.edu.co",
+                )
 
         post.assert_called_once()
         _, kwargs = post.call_args
         self.assertEqual(kwargs["json"], {"user": "jcastellanosj@udistrital.edu.co"})
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer token-outlook")
         self.assertEqual(profile.roles, ["ESTUDIANTE"])
+        output = "\n".join(logs.output)
+        self.assertIn("authentication_mid request method=POST", output)
+        self.assertIn("authentication_mid response status=200", output)
+        self.assertIn("jcastellanosj@udistrital.edu.co", output)
+        self.assertNotIn("token-outlook", output)
 
     @override_settings(**AUTHENTICATION_MID_TEST_SETTINGS)
     def test_fetch_authentication_mid_profile_rejects_error_response(self):
