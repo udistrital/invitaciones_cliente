@@ -5,6 +5,8 @@ services:
       POSTGRES_DB: ${DB_NAME:-sistema_invitaciones}
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -65,7 +67,8 @@ services:
       db:
         condition: service_healthy
     command: >
-      sh -c "python manage.py runserver 0.0.0.0:${WEB_PORT:-8000}"
+      sh -c "python manage.py collectstatic --noinput &&
+      python manage.py runserver 0.0.0.0:${WEB_PORT:-8000}"
 
 volumes:
   postgres_data:
